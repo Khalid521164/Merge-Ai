@@ -39,7 +39,7 @@ st.markdown(
     [data-testid="stHeader"] { background: transparent; }
     [data-testid="stDecoration"], footer { display: none; }
     div[data-testid="stMainBlockContainer"] {
-        max-width: 1030px; padding: 2.0rem 2.2rem 8rem;
+        max-width: 1030px; padding: 2.0rem 2.2rem 2.5rem;
     }
     h1, h2, h3 { font-family: 'Manrope', sans-serif; }
     /* Header */
@@ -52,22 +52,19 @@ st.markdown(
         letter-spacing:-.8px; line-height:1.1; color:var(--ink);}
     .brand-sub {font-size:12px; letter-spacing:.25px; color:var(--muted); margin-top:5px;}
     .header-rule {border-top:1px solid var(--line); margin: 0 0 18px;}
-    /* Empty-state hero */
-    .welcome {text-align:center; max-width:750px; margin: clamp(44px,9vh,118px) auto 0;}
-    .eyebrow {display:inline-block; color:var(--accent); background:var(--soft);
-        border:1px solid #dce8dc; border-radius:100px; padding:7px 14px;
-        font-size:11px; font-weight:700; letter-spacing:1.1px;}
-    .welcome h2 {font-family:'Manrope',sans-serif; color:var(--ink);
-        font-weight:800; font-size:clamp(33px,4.1vw,53px); line-height:1.17;
-        letter-spacing:-1.9px; margin:22px 0 15px;}
-    .welcome h2 em {font-style:normal; color:var(--accent);}
-    .welcome p {font-size:16px; color:var(--muted); max-width:510px;
-        margin:0 auto 30px; line-height:1.85;}
-    .feature-row {display:flex; flex-wrap:wrap; justify-content:center;
-        gap:9px; margin:0 auto 28px;}
-    .feature {background:#fff; border:1px solid var(--line); padding:10px 15px;
-        border-radius:100px; font-size:12px; color:#50665d; font-weight:600;}
-    .hint {text-align:center; color:#94a29a; font-size:12px; margin:20px 0 15px;}
+    /* Chat area replaces the large welcome heading */
+    .conversation-label {display:flex; justify-content:space-between;
+        align-items:center; margin:12px 0 12px; gap:12px;}
+    .conversation-label strong {font-family:'Manrope',sans-serif;
+        font-size:15px; color:var(--ink); font-weight:800;}
+    .conversation-label span {font-size:12px; color:var(--muted);}
+    .empty-chat {min-height:105px; display:flex; flex-direction:column;
+        align-items:center; justify-content:center; text-align:center;
+        color:var(--ink); font-weight:650; font-size:14px; padding:12px;}
+    .empty-chat .empty-sub {font-weight:400; margin-top:9px;
+        font-size:12px; color:var(--muted);}
+    .chat-caption {font-size:11px; color:var(--muted); text-align:center;
+        margin-top:12px;}
     /* Controls */
     .stButton > button {border-radius:11px; font-family:'DM Sans',sans-serif;
         font-size:13px; font-weight:650; border:1px solid #e0e7df;
@@ -84,9 +81,7 @@ st.markdown(
     [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
         background:#f0f4f0; border-color:#e6ece5;}
     [data-testid="stChatMessageContent"] p {line-height:1.7;}
-    /* Chat composer (fixed to the bottom by Streamlit) */
-    [data-testid="stBottom"] {background:linear-gradient(to top, var(--canvas) 82%, transparent);}
-    [data-testid="stBottom"] > div {max-width: 1010px;}
+    /* The input sits directly underneath the chat, not at screen bottom. */
     [data-testid="stChatInput"] {border:1px solid #dbe5d9;
         border-radius:17px; background:#fff;
         box-shadow:0 7px 30px rgba(28,64,49,.075); padding:6px;}
@@ -104,14 +99,10 @@ st.markdown(
     .status-dot {display:inline-block;width:7px;height:7px;border-radius:50%;
         background:#59a17b;margin-right:7px;vertical-align:middle;}
     @media (max-width: 640px) {
-        div[data-testid="stMainBlockContainer"] {padding:1.5rem 1rem 8rem;}
+        div[data-testid="stMainBlockContainer"] {padding:1.5rem 1rem 2rem;}
         .brand-logo {width:40px;height:40px;font-size:22px;}
         .brand-name {font-size:21px;}
         .brand-sub {font-size:11px;}
-        .welcome {margin-top:34px;}
-        .welcome h2 {letter-spacing:-1px;}
-        .welcome p {font-size:14px;}
-        .feature {padding:8px 11px; font-size:11px;}
         [data-testid="stChatMessage"] {padding:11px;}
     }
     </style>
@@ -188,24 +179,6 @@ with new_chat_col:
 st.markdown('<div class="header-rule"></div>', unsafe_allow_html=True)
 
 
-# --- Empty-state welcome ----------------------------------------------------
-if not st.session_state.messages:
-    st.markdown(
-        '<div class="welcome">'
-        '<div class="eyebrow">✦ MULTIPLE MINDS, ONE ANSWER</div>'
-        '<h2>Curiosity starts here.<br><em>Clarity comes next.</em></h2>'
-        '<p>Ask anything. Merge AI brings together Gemini, OpenRouter, Groq '
-        'and optional Tavily research to create one thoughtful answer.</p>'
-        '<div class="feature-row">'
-        '<span class="feature">✧ Multiple AI models</span>'
-        '<span class="feature">⌕ Web research</span>'
-        '<span class="feature">✓ One final answer</span>'
-        '</div></div>',
-        unsafe_allow_html=True,
-    )
-    st.markdown('<div class="hint">Try a question to get started</div>', unsafe_allow_html=True)
-
-
 # --- Chat history -----------------------------------------------------------
 def show_sources(sources: object) -> None:
     if not isinstance(sources, list):
@@ -224,16 +197,46 @@ def show_sources(sources: object) -> None:
                 st.link_button(title, url)
 
 
-for message in st.session_state.messages:
-    role = message.get("role", "assistant")
-    with st.chat_message(role, avatar="👤" if role == "user" else "🤖"):
-        st.markdown(message["content"])
-        if role == "assistant":
-            show_sources(message.get("sources", []))
+# --- Actual conversation occupies the former welcome section --------------
+st.markdown(
+    '<div class="conversation-label"><strong>Conversation</strong>'
+    '<span>Gemini · OpenRouter · Groq · Tavily research</span></div>',
+    unsafe_allow_html=True,
+)
+
+# A nested chat_input renders inline, so it is below the conversation panel.
+# When chat is empty, the small panel and input sit near the middle of the page.
+# After the first question, the panel grows and keeps earlier messages scrollable.
+with st.container():
+    panel_height = 440 if st.session_state.messages else 150
+    with st.container(height=panel_height, border=True):
+        if not st.session_state.messages:
+            st.markdown(
+                '<div class="empty-chat">Your Merge AI chat goes here'
+                '<div class="empty-sub">Type a question below to begin.</div></div>',
+                unsafe_allow_html=True,
+            )
+        for message in st.session_state.messages:
+            role = message.get("role", "assistant")
+            with st.chat_message(role, avatar="👤" if role == "user" else "🤖"):
+                st.markdown(message["content"])
+                if role == "assistant":
+                    show_sources(message.get("sources", []))
+
+        # Reserve a spot *inside* the message panel for the new exchange.
+        latest_reply = st.empty()
+
+    question = st.chat_input(
+        "Ask Merge AI anything...", max_chars=1000, key="merge_chat_input",
+    )
+
+st.markdown(
+    '<div class="chat-caption">Multiple AI perspectives · One thoughtful answer</div>',
+    unsafe_allow_html=True,
+)
 
 
 # --- Composer and request limits --------------------------------------------
-question = st.chat_input("Ask Merge AI anything...", max_chars=1000)
 if question and question.strip():
     question = question.strip()
     now = time.monotonic()
@@ -241,32 +244,37 @@ if question and question.strip():
     st.session_state.request_times = recent
 
     if len(recent) >= 20:
-        st.warning("This browser session has reached its hourly question limit. Please try again later.")
+        with latest_reply.container():
+            st.warning("This browser session has reached its hourly question limit. Please try again later.")
     else:
         # Count attempted calls too, to protect free API limits.
         st.session_state.request_times.append(now)
         st.session_state.messages.append({"role": "user", "content": question})
-        with st.chat_message("user", avatar="👤"):
-            st.markdown(question)
+        with latest_reply.container():
+            with st.chat_message("user", avatar="👤"):
+                st.markdown(question)
 
-        with st.chat_message("assistant", avatar="🤖"):
-            with st.spinner("Preparing your merged answer..."):
-                try:
-                    answer = st.session_state.engine.ask(
-                        question,
-                        fast=(mode == "Fast"),
-                        web_search=web_enabled,
-                    )
-                    sources = st.session_state.engine.last_report.get("sources", [])
-                    if not isinstance(sources, list):
+            with st.chat_message("assistant", avatar="🤖"):
+                with st.spinner("Preparing your merged answer..."):
+                    try:
+                        answer = st.session_state.engine.ask(
+                            question,
+                            fast=(mode == "Fast"),
+                            web_search=web_enabled,
+                        )
+                        sources = st.session_state.engine.last_report.get("sources", [])
+                        if not isinstance(sources, list):
+                            sources = []
+                    except Exception:
+                        logging.exception("Merge AI request failed")
+                        answer = "Sorry, I couldn't complete that answer right now. Please try again."
                         sources = []
-                except Exception:
-                    logging.exception("Merge AI request failed")
-                    answer = "Sorry, I couldn't complete that answer right now. Please try again."
-                    sources = []
-            st.markdown(answer)
-            show_sources(sources)
+                st.markdown(answer)
+                show_sources(sources)
 
         st.session_state.messages.append({
             "role": "assistant", "content": answer, "sources": sources,
         })
+        # Rerun so the message area grows after the first turn and displays
+        # the completed conversation consistently in the same panel.
+        st.rerun()
