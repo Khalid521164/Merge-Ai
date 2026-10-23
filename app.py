@@ -1,172 +1,157 @@
-"""Merge AI — responsive Streamlit chat screen with session-only chat history.
+"""Merge AI web app — responsive Streamlit screen + searchable chat history.
 
-Keep this file next to chat_history.py, merge_ai.py, interaction.py,
-web_search.py, and merge_ai_favicon.png. Existing desktop files are unchanged.
-API keys belong in Streamlit Cloud > App settings > Secrets, never GitHub.
+Requires only Streamlit and your existing Merge AI project modules:
+    merge_ai.py, interaction.py, web_search.py
+
+The optional merge_ai_favicon.png is used if it exists. Nothing crashes if
+that image is missing. API keys should be configured in Streamlit Secrets.
+
+Chat history is isolated per Streamlit browser session. Export it from the
+History menu if you want to keep a copy; this is NOT an account-sync service.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlsplit
 
 import streamlit as st
 
+# --- Page setup: do not require an image that might be missing on GitHub. ---
+ICON_FILE = Path(__file__).resolve().parent / "merge_ai_favicon.png"
+ICON = str(ICON_FILE) if ICON_FILE.is_file() else "🟢"
+ASSISTANT_AVATAR = ICON if ICON_FILE.is_file() else "🤖"
+
 st.set_page_config(
-    page_title="Merge AI | Think together. Answer better.",
-    page_icon="merge_ai_favicon.png",
+    page_title="Merge AI | One clearer answer",
+    page_icon=ICON,
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
+# Import only the existing AI backend. There is NO dependency on the older
+# chat_history.py or account_info.py files, so their imports cannot crash this page.
 from merge_ai import MergeAI, default_providers, safe_source_url
-from chat_history import (
-    active_chat,
-    active_engine,
-    add_message,
-    create_chat,
-    history_popover,
-    init_history,
-    MAX_CHATS,
-)
 
-# The page deliberately uses the same brand, toolbar and message layout at
-# all viewport sizes. Narrow screens reduce spacing instead of replacing the UI.
+MAX_CHATS = 20
+MAX_QUESTION_CHARS = 1000
+MAX_QUESTIONS_PER_HOUR = 20
+
+
+# --- Theme: identical screen components at all breakpoints. ---
 st.markdown(
     """
 <style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
 :root {
-  --cream: #faf8f4; --white: #fff; --green: #326957;
-  --forest: #183b35; --muted: #6e8079; --line: #e0e9df;
-  --mist: #eff5ef;
+    --cream:#faf8f4; --paper:#ffffff; --forest:#193e35;
+    --green:#326957; --muted:#708178; --line:#dfebe1; --mint:#f1f7f2;
 }
-html, body, .stApp, [data-testid="stAppViewContainer"] {
-    background: var(--cream) !important;
-    font-family: 'DM Sans', sans-serif;
+html,body,.stApp,[data-testid="stAppViewContainer"] {
+    background:var(--cream)!important;
+    color-scheme:light!important;
+    color:var(--forest)!important;
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif!important;
 }
-[data-testid="stHeader"] {background: transparent !important;}
-[data-testid="stDecoration"], footer {display:none;}
+[data-testid="stHeader"] {background:transparent!important;}
+[data-testid="stDecoration"],footer {display:none!important;}
 [data-testid="stMainBlockContainer"] {
-    width: 100% !important;
-    max-width: 990px !important;
-    padding: 1.65rem clamp(0.75rem, 3.2vw, 2rem) 2rem !important;
+    max-width:950px!important;
+    padding:1.35rem clamp(.75rem,3vw,1.7rem) 2rem!important;
 }
-h1, h2, h3 {font-family:'Manrope',sans-serif;}
-.brand-wrap {display:flex; align-items:center; gap:14px; margin-bottom: 6px;}
-.brand-icon {
-    width:45px;height:45px;border-radius:14px;background:var(--green);
-    color:white;display:flex;align-items:center;justify-content:center;
-    font:800 24px 'Manrope',sans-serif;
-    box-shadow:0 8px 24px rgba(50,105,87,.16);flex:none;
+.merge-brand {display:flex;align-items:center;gap:12px;padding-bottom:10px;}
+.merge-mark {
+    width:48px;height:48px;flex:none;display:grid;place-items:center;
+    border-radius:15px;background:var(--green);color:white;
+    font-size:25px;font-weight:850;box-shadow:0 8px 20px #32695723;
 }
-.brand-main {font:800 clamp(21px,4.4vw,27px)/1.1 'Manrope',sans-serif;
-    letter-spacing:-.8px;color:var(--forest);}
-.brand-sub {font-size:10px;color:var(--muted);letter-spacing:.08em;
-    margin-top:6px;white-space:normal;}
-.brand-rule {height:1px;background:var(--line);margin:14px 0 10px;}
+.merge-title {font-size:clamp(22px,3.8vw,28px);font-weight:800;
+    letter-spacing:-1px;line-height:1.2;color:var(--forest);}
+.merge-sub {font-size:10px;letter-spacing:.095em;color:var(--muted);
+    margin-top:3px;font-weight:600;}
+.merge-rule {height:1px;background:var(--line);margin:8px 0 13px;}
+.merge-section {display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;
+    margin:15px 0 10px;}
+.merge-section strong {font-size:15px;font-weight:800;color:var(--forest);}
+.merge-section span {font-size:11px;color:var(--muted);}
+[data-testid="stVerticalBlock"] {gap:.65rem;}
 .st-key-merge_toolbar [data-testid="stHorizontalBlock"] {
-    flex-wrap:nowrap !important;gap:.5rem !important;align-items:center;
+    flex-direction:row!important;flex-wrap:nowrap!important;gap:.4rem!important;
 }
-.st-key-merge_toolbar [data-testid="column"] {min-width:0 !important;}
-.st-key-merge_toolbar .stButton button,
-.st-key-merge_toolbar [data-testid="stPopover"] button {
-    min-height:40px !important;
+.st-key-merge_toolbar [data-testid="column"] {
+    min-width:0!important;flex:1 1 0!important;width:0!important;
 }
-.stButton > button, [data-testid="stPopover"] > button {
-    border: 1px solid var(--line) !important;
-    background:white !important;
-    color:var(--forest) !important;
-    border-radius:12px !important;
-    font-family:'DM Sans',sans-serif !important;
-    font-size:13px !important;font-weight:700 !important;
-    transition:background .15s ease,border-color .15s ease;
+.stButton>button, [data-testid="stPopover"] button {
+    border:1px solid var(--line)!important;color:var(--forest)!important;
+    background:var(--paper)!important;border-radius:12px!important;
+    font-weight:650!important;min-height:40px!important;
 }
-.stButton > button:hover, [data-testid="stPopover"] > button:hover {
-    background:var(--mist) !important;
-    border-color:#a6bcac !important;
-    color:var(--green) !important;
+.stButton>button:hover,[data-testid="stPopover"] button:hover {
+    border-color:#9fbbab!important;background:var(--mint)!important;
 }
-.toolbar-hint {text-align:right;line-height:1.2;color:var(--muted);
-    font-size:11px;padding-top:10px;}
-.section-label {display:flex;align-items:baseline;gap:12px;
-    margin:16px 0 12px;}
-.section-label strong {font:800 15px 'Manrope',sans-serif;color:var(--forest);}
-.section-label span {font-size:11px;color:var(--muted);overflow-wrap:anywhere;}
-.st-key-conversation_panel {
-    border-color:var(--line) !important;
-    background:#fff !important;
-    border-radius:20px !important;
-    box-shadow:0 6px 35px rgba(29,65,54,.035);
+.st-key-merge_conversation {
+    border-radius:20px!important;border:1px solid var(--line)!important;
+    background:var(--paper)!important;box-shadow:0 8px 25px #173c3510;
 }
 [data-testid="stChatMessage"] {
-    background:#fff !important;
-    border:1px solid var(--line);
-    border-radius:15px;padding:14px 15px;margin:8px 0;
-    box-shadow:0 3px 12px rgba(40,75,60,.025);
+    background:var(--paper)!important;border:1px solid var(--line)!important;
+    border-radius:16px!important;padding:12px 14px!important;margin:7px 0!important;
+    box-shadow:0 2px 8px #173c3506;
 }
 [data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
-    background:#f1f6f1 !important;
+    background:var(--mint)!important;
 }
 [data-testid="stChatMessageContent"] {min-width:0;overflow-wrap:anywhere;}
-[data-testid="stChatMessageContent"] p {line-height:1.65;}
-.chat-empty {text-align:center;padding:82px 10px 52px;color:var(--forest);}
-.chat-empty .empty-mark {
-    width:46px;height:46px;background:var(--mist);color:var(--green);
-    font-size:26px;font-weight:800;border-radius:15px;
-    display:grid;place-items:center;margin:0 auto 20px;
-}
-.chat-empty h2 {font:800 clamp(19px,4.8vw,26px) 'Manrope',sans-serif;
-    letter-spacing:-.5px;margin:0 0 8px;}
-.chat-empty p {font-size:13px;color:var(--muted);line-height:1.7;margin:0;}
+[data-testid="stChatMessageContent"] p {line-height:1.6;}
+.merge-welcome {text-align:center;padding:85px 12px 70px;color:var(--forest);}
+.merge-welcome-mark {width:55px;height:55px;margin:0 auto 18px;
+    border-radius:18px;background:var(--mint);color:var(--green);
+    font-weight:900;font-size:29px;display:grid;place-items:center;}
+.merge-welcome h2 {font-size:clamp(20px,4vw,29px);line-height:1.3;
+    letter-spacing:-.6px;margin:0 0 12px;font-weight:850;}
+.merge-welcome p {font-size:13px;color:var(--muted);line-height:1.6;margin:0;}
 [data-testid="stChatInput"] {
-    background:#fff !important;border-radius:16px !important;
-    border:1px solid #cbdcd1 !important;
-    box-shadow:0 6px 28px rgba(31,67,51,.065) !important;
+    border:1px solid #cbded0!important;border-radius:15px!important;
+    background:white!important;box-shadow:0 6px 22px #173c3511!important;
 }
-[data-testid="stChatInput"] textarea {
-    font-family:'DM Sans',sans-serif !important;color:var(--forest) !important;
-    font-size:14px !important;
-}
-[data-testid="stChatInput"] button {color:var(--green) !important;}
-.composer-caption {text-align:center;color:var(--muted);font-size:11px;
-    margin:10px 0 0;}
-@media(max-width:640px) {
-  [data-testid="stMainBlockContainer"] {padding:1rem .7rem 1.4rem !important;}
-  .brand-wrap {gap:10px;}
-  .brand-icon {width:40px;height:40px;font-size:23px;border-radius:12px;}
-  .brand-sub {font-size:9px;}
-  .brand-rule {margin:12px 0 7px;}
-  .st-key-merge_toolbar [data-testid="stHorizontalBlock"] {gap:.35rem !important;}
-  .st-key-merge_toolbar .stButton button,
-  .st-key-merge_toolbar [data-testid="stPopover"] button {
-      min-height:39px !important;font-size:12px !important;padding:0 .35rem !important;
-  }
-  [data-testid="stChatMessage"] {padding:10px;margin:6px 0;border-radius:13px;}
-  .section-label {margin-top:13px;}
-  .section-label span {font-size:10px;}
-  .chat-empty {padding:48px 6px 34px;}
+[data-testid="stChatInput"] textarea {font-size:14px!important;color:var(--forest)!important;}
+.merge-footnote {text-align:center;font-size:11px;color:var(--muted);margin:10px 0 0;}
+@media(max-width:650px) {
+  [data-testid="stMainBlockContainer"] {padding:1rem .6rem 1.5rem!important;}
+  .merge-mark {width:42px;height:42px;font-size:23px;border-radius:13px;}
+  .merge-brand {gap:9px;}
+  .merge-sub {font-size:9px;letter-spacing:.055em;}
+  .st-key-merge_toolbar button {min-height:38px!important;font-size:12px!important;
+    padding-left:.3rem!important;padding-right:.3rem!important;}
+  [data-testid="stChatMessage"] {padding:10px!important;border-radius:13px!important;}
+  .merge-welcome {padding:50px 6px 36px;}
+  .merge-section span {font-size:10px;}
 }
 </style>
-    """,
+""",
     unsafe_allow_html=True,
 )
 
 
-def secret_value(name: str) -> str:
+# --- Secrets stay server-side. ---
+def read_secret(name: str) -> str:
     try:
         return str(st.secrets.get(name, "") or "").strip()
+    except (KeyError, FileNotFoundError):
+        return ""
     except Exception:
         return ""
 
 
-# Keys are read on the server and never embedded into page HTML or JSON.
-for secret_name in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "TAVILY_API_KEY"):
-    value = secret_value(secret_name)
-    if value and not os.environ.get(secret_name):
-        os.environ[secret_name] = value
+for _key in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "TAVILY_API_KEY"):
+    _val = read_secret(_key)
+    if _val:
+        os.environ[_key] = _val
 
 
 def make_engine() -> MergeAI:
@@ -176,130 +161,285 @@ def make_engine() -> MergeAI:
     )
 
 
-init_history(make_engine)
-if "merge_request_times" not in st.session_state:
-    st.session_state.merge_request_times = []
-if "merge_web_enabled" not in st.session_state:
-    st.session_state.merge_web_enabled = True
-if "merge_answer_mode" not in st.session_state:
-    st.session_state.merge_answer_mode = "Fast"
+# --- Chat history: fully contained in app.py, private to this session. ---
+def new_chat_record() -> dict:
+    return {
+        "id": uuid.uuid4().hex,
+        "title": "New conversation",
+        "messages": [],
+        "updated": time.time(),
+        "engine": make_engine(),
+    }
 
 
-# Consistent header on ALL devices (same toolbar, no mobile-only replacement).
+def short_title(text: str) -> str:
+    text = " ".join(text.split())
+    return text[:42] + ("…" if len(text) > 42 else "") or "New conversation"
+
+
+def init_state() -> None:
+    if "ma_chats_v2" not in st.session_state:
+        # Import session-only history from an earlier version where possible.
+        migrated = {}
+        old = st.session_state.get("merge_chats")
+        engines = st.session_state.get("merge_engines", {})
+        if isinstance(old, dict):
+            for chat_id, item in list(old.items())[:MAX_CHATS]:
+                if not isinstance(item, dict):
+                    continue
+                migrated[chat_id] = {
+                    "id": chat_id,
+                    "title": str(item.get("title", "New conversation"))[:60],
+                    "messages": list(item.get("messages") or []),
+                    "updated": float(item.get("updated", time.time())),
+                    "engine": engines.get(chat_id) or make_engine(),
+                }
+        if migrated:
+            st.session_state.ma_chats_v2 = migrated
+            active_id = st.session_state.get("merge_active_id")
+            st.session_state.ma_active_v2 = (
+                active_id if active_id in migrated else next(iter(migrated))
+            )
+        else:
+            record = new_chat_record()
+            old_messages = st.session_state.get("messages")
+            if isinstance(old_messages, list) and old_messages:
+                record["messages"] = list(old_messages)
+                first = next(
+                    (m.get("content", "") for m in old_messages
+                     if isinstance(m, dict) and m.get("role") == "user"), ""
+                )
+                record["title"] = short_title(first)
+                record["engine"] = st.session_state.get("engine") or make_engine()
+            st.session_state.ma_chats_v2 = {record["id"]: record}
+            st.session_state.ma_active_v2 = record["id"]
+    if "ma_web_on" not in st.session_state:
+        st.session_state.ma_web_on = True
+    if "ma_answer_mode" not in st.session_state:
+        st.session_state.ma_answer_mode = "Fast"
+    if "ma_request_times" not in st.session_state:
+        st.session_state.ma_request_times = []
+
+
+def active_chat() -> dict:
+    chats = st.session_state.ma_chats_v2
+    chat_id = st.session_state.ma_active_v2
+    if chat_id not in chats:
+        st.session_state.ma_active_v2 = next(iter(chats))
+    return chats[st.session_state.ma_active_v2]
+
+
+def start_new_chat() -> bool:
+    if not active_chat()["messages"]:
+        return True
+    chats = st.session_state.ma_chats_v2
+    if len(chats) >= MAX_CHATS:
+        return False
+    item = new_chat_record()
+    chats[item["id"]] = item
+    st.session_state.ma_active_v2 = item["id"]
+    return True
+
+
+def delete_chat(chat_id: str) -> None:
+    chats = st.session_state.ma_chats_v2
+    chats.pop(chat_id, None)
+    if not chats:
+        item = new_chat_record()
+        chats[item["id"]] = item
+    if st.session_state.ma_active_v2 not in chats:
+        st.session_state.ma_active_v2 = max(chats, key=lambda key: chats[key]["updated"])
+
+
+def append_message(role: str, content: str, sources=None) -> None:
+    chat = active_chat()
+    chat["messages"].append({
+        "role": role,
+        "content": content,
+        **({"sources": sources} if sources and role == "assistant" else {}),
+    })
+    chat["updated"] = time.time()
+    if role == "user" and sum(m.get("role") == "user" for m in chat["messages"]) == 1:
+        chat["title"] = short_title(content)
+
+
+def export_history() -> str:
+    records = sorted(st.session_state.ma_chats_v2.values(),
+                     key=lambda chat: chat["updated"], reverse=True)
+    return json.dumps({
+        "app": "Merge AI",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "chats": [
+            {"title": chat["title"], "messages": chat["messages"]}
+            for chat in records if chat["messages"]
+        ],
+    }, ensure_ascii=False, indent=2)
+
+
+def show_history() -> None:
+    with st.popover("History", use_container_width=True):
+        st.markdown("##### Chat history")
+        search = st.text_input(
+            "Search previous chats", placeholder="Search titles or messages...",
+            key="ma_history_search",
+        ).strip().casefold()
+        items = sorted(st.session_state.ma_chats_v2.values(),
+                       key=lambda chat: chat["updated"], reverse=True)
+        if search:
+            items = [c for c in items if search in c["title"].casefold() or any(
+                search in str(m.get("content", "")).casefold() for m in c["messages"]
+            )]
+        with st.container(height=225, border=False):
+            if not items:
+                st.caption("No matching conversations.")
+            for item in items:
+                selected = item["id"] == st.session_state.ma_active_v2
+                title = ("● " if selected else "") + item["title"]
+                if st.button(title, key="ma_open_" + item["id"],
+                             use_container_width=True):
+                    st.session_state.ma_active_v2 = item["id"]
+                    st.rerun()
+        with st.expander("Rename or delete current chat"):
+            chat = active_chat()
+            name = st.text_input("Chat name", value=chat["title"],
+                                 max_chars=60, key="ma_rename_" + chat["id"])
+            if st.button("Save name", key="ma_save_name"):
+                new_name = " ".join(name.split())[:60]
+                if new_name:
+                    chat["title"] = new_name
+                    st.rerun()
+            if st.button("Delete this chat", key="ma_delete_chat"):
+                delete_chat(chat["id"])
+                st.rerun()
+        st.download_button(
+            "Download chat backup",
+            data=export_history(),
+            file_name="merge_ai_chat_history.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+        st.caption(f"{len(st.session_state.ma_chats_v2)} of {MAX_CHATS} chats. "
+                   "History lasts only for this browser session.")
+
+
+def show_sources(sources) -> None:
+    if not isinstance(sources, list):
+        return
+    valid = []
+    for item in sources[:8]:
+        if not isinstance(item, dict):
+            continue
+        url = safe_source_url(item.get("url"))
+        if url:
+            label = str(item.get("title") or urlsplit(url).hostname or "Source")[:90]
+            valid.append((label, url))
+    if valid:
+        with st.expander(f"Research sources ({len(valid)})"):
+            for title, url in valid:
+                st.link_button(title, url)
+
+
+# --- Visible UI ---
+init_state()
+
 st.markdown(
-    '<div class="brand-wrap"><div class="brand-icon">M</div>'
-    '<div><div class="brand-main">Merge AI</div>'
-    '<div class="brand-sub">THINK TOGETHER. ANSWER BETTER.</div></div></div>'
-    '<div class="brand-rule"></div>',
+    '<div class="merge-brand"><div class="merge-mark">M</div>'
+    '<div><div class="merge-title">Merge AI</div>'
+    '<div class="merge-sub">THINK TOGETHER. ANSWER BETTER.</div>'
+    '</div></div><div class="merge-rule"></div>',
     unsafe_allow_html=True,
 )
 
 with st.container(key="merge_toolbar"):
-    history_col, new_col, settings_col = st.columns([1, 1, 1], gap="small")
+    history_col, new_col, options_col = st.columns([1, 1, 1], gap="small")
     with history_col:
-        history_popover(make_engine)
+        show_history()
     with new_col:
-        if st.button("＋ New chat", use_container_width=True, key="merge_new_chat"):
-            if not create_chat(make_engine):
-                st.warning(f"You have reached {MAX_CHATS} chats. Delete an old chat to create another.")
-            else:
+        if st.button("＋ New chat", key="ma_new_chat", use_container_width=True):
+            if start_new_chat():
                 st.rerun()
-    with settings_col:
+            else:
+                st.warning("Your chat list is full. Delete an old chat first.")
+    with options_col:
         with st.popover("Settings", use_container_width=True):
-            st.markdown("##### Answer settings")
-            st.toggle("Tavily web research", key="merge_web_enabled")
-            st.radio("Answer mode", ["Fast", "Thorough"], key="merge_answer_mode")
+            st.toggle("Tavily web research", key="ma_web_on")
+            st.radio("Answer mode", ("Fast", "Thorough"), key="ma_answer_mode")
             st.caption("Gemini · OpenRouter · Groq")
 
-# Current conversation and composer are always in the same locations.
-current_chat = active_chat()
 st.markdown(
-    '<div class="section-label"><strong>Conversation</strong>'
-    '<span>Gemini · OpenRouter · Groq · optional Tavily research</span></div>',
+    '<div class="merge-section"><strong>Conversation</strong>'
+    '<span>Gemini · OpenRouter · Groq · Tavily research</span></div>',
     unsafe_allow_html=True,
 )
 
-
-def show_sources(sources: object) -> None:
-    if not isinstance(sources, list):
-        return
-    safe = []
-    for source in sources[:6]:
-        if not isinstance(source, dict):
-            continue
-        url = safe_source_url(source.get("url"))
-        if url:
-            name = (source.get("title") or urlsplit(url).hostname or "Source")
-            safe.append((str(name)[:85], url))
-    if safe:
-        with st.expander(f"Research sources ({len(safe)})"):
-            for name, url in safe:
-                st.link_button(name, url)
-
-
-with st.container(height=420, border=True, key="conversation_panel"):
-    if not current_chat["messages"]:
+# Inline composer below a scrollable history area — same placement on mobile.
+with st.container(height=420, border=True, key="merge_conversation"):
+    chat = active_chat()
+    if not chat["messages"]:
         st.markdown(
-            '<div class="chat-empty"><div class="empty-mark">✦</div>'
+            '<div class="merge-welcome"><div class="merge-welcome-mark">✦</div>'
             '<h2>What’s on your mind?</h2>'
-            '<p>Ask a question and Merge AI will combine multiple AI perspectives<br>'
-            'into one clear response.</p></div>',
+            '<p>Ask anything. Multiple AI models work together<br>'
+            'to produce one thoughtful answer.</p></div>',
             unsafe_allow_html=True,
         )
     else:
-        for message in current_chat["messages"]:
+        for message in chat["messages"]:
             role = message.get("role", "assistant")
-            with st.chat_message(role, avatar="👤" if role == "user" else "merge_ai_favicon.png"):
+            if role not in ("user", "assistant"):
+                continue
+            avatar = "👤" if role == "user" else ASSISTANT_AVATAR
+            with st.chat_message(role, avatar=avatar):
                 st.markdown(str(message.get("content", "")))
                 if role == "assistant":
-                    show_sources(message.get("sources", []))
-    latest_response = st.empty()
+                    show_sources(message.get("sources"))
 
-# Inside a container, chat_input stays inline (not differently docked on mobile).
+    # New answer appears here before the rerun updates the history.
+    answer_space = st.empty()
+
+# st.chat_input inside a container is inline instead of pinned elsewhere.
 with st.container():
-    question = st.chat_input("Ask Merge AI anything...", max_chars=1000, key="merge_prompt")
+    question = st.chat_input(
+        "Ask Merge AI anything...", max_chars=MAX_QUESTION_CHARS,
+        key="ma_question",
+    )
 
 st.markdown(
-    '<div class="composer-caption">One thoughtful answer from multiple models · '
-    'Chats are private to this browser session</div>',
+    '<div class="merge-footnote">One answer from multiple AI models · '
+    'Chat history is private to this session</div>',
     unsafe_allow_html=True,
 )
 
 if question and question.strip():
+    question = question.strip()
     now = time.monotonic()
-    st.session_state.merge_request_times = [
-        t for t in st.session_state.merge_request_times if now - t < 3600
+    st.session_state.ma_request_times = [
+        t for t in st.session_state.ma_request_times if now - t < 3600
     ]
-    if len(st.session_state.merge_request_times) >= 20:
-        st.warning("This browser session reached its hourly question limit. Try again later.")
+    if len(st.session_state.ma_request_times) >= MAX_QUESTIONS_PER_HOUR:
+        st.warning("You have reached this session's hourly question limit. Try later.")
     else:
-        st.session_state.merge_request_times.append(now)
-        add_message("user", question.strip())
-        succeeded = False
-        with latest_response.container():
+        st.session_state.ma_request_times.append(now)
+        with answer_space.container():
             with st.chat_message("user", avatar="👤"):
                 st.markdown(question)
-           with st.chat_message("assistant", avatar="🤖"):
-                with st.spinner("Researching and merging your answer..."):
+            with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+                with st.spinner("Researching and merging an answer..."):
                     try:
-                        answer = active_engine().ask(
-                            question.strip(),
-                            fast=(st.session_state.merge_answer_mode == "Fast"),
-                            web_search=st.session_state.merge_web_enabled,
+                        engine = active_chat()["engine"]
+                        result = engine.ask(
+                            question,
+                            fast=(st.session_state.ma_answer_mode == "Fast"),
+                            web_search=st.session_state.ma_web_on,
                         )
-                        sources = active_engine().last_report.get("sources", [])
-                        if not isinstance(sources, list):
-                            sources = []
+                        answer = str(result)
+                        sources = engine.last_report.get("sources", [])
                     except Exception:
                         logging.exception("Merge AI request failed")
-                        # Failed questions aren't treated as successful conversation
-                        # turns by the backend; keep the frontend history in sync.
-                        active_chat()["messages"].pop()
-                        st.error("I couldn't finish that answer. Please try again.")
+                        st.error("Sorry, I couldn't complete that answer. Please try again.")
                     else:
                         st.markdown(answer)
                         show_sources(sources)
-                        add_message("assistant", answer, sources)
-                        succeeded = True
-        if succeeded:
-            st.rerun()
+                        append_message("user", question)
+                        append_message("assistant", answer, sources)
+                        st.rerun()
