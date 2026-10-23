@@ -1,176 +1,176 @@
-"""Durable, user-owned conversations backed by Supabase Postgres RLS.
+"""Per-visitor, multi-conversation history for the Merge AI Streamlit UI.
 
-All operations require a verified Account. UUIDs are identifiers, never proof
-of ownership. The database enforces ownership even if Python filters are bypassed.
+Chats and MergeAI engines live in st.session_state, not in shared globals/files.
+This is intentionally session-only storage, not cross-device account sync.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from uuid import UUID, uuid4
+import json
+import time
+from typing import Callable
+from uuid import uuid4
 
-from account_info import AccountError
+import streamlit as st
 
-
-class HistoryError(Exception):
-    pass
-
-
-def uuid_text(value: str) -> str:
-    try:
-        return str(UUID(str(value)))
-    except (ValueError, TypeError, AttributeError):
-        raise HistoryError("This conversation could not be opened.") from None
+MAX_CHATS = 20
 
 
-class ChatHistory:
-    def __init__(self, account):
-        self.account = account
-
-    @property
-    def owner(self) -> str:
-        if not self.account.user:
-            raise AccountError("Sign in to access your saved chats.")
-        return str(self.account.user.id)
-
-    def _db(self):
-        if not self.account.verified_user():
-            raise AccountError("Sign in to access your saved chats.")
-        return self.account.client
-
-    def list_chats(self, page: int = 0, search: str = "") -> list[dict]:
-        try:
-            query = self._db().table("merge_conversations").select(
-                "id,title,created_at,updated_at"
-            ).eq("user_id", self.owner)
-            if search.strip():
-                literal = search.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-                query = query.ilike("title", f"%{literal}%")
-            return query.order("updated_at", desc=True).order("id").range(
-                page * 100, page * 100 + 99
-            ).execute().data
-        except AccountError:
-            raise
-        except Exception:
-            raise HistoryError("Saved chats could not load. Please try Refresh chats.") from None
-
-    def load_chat(self, chat_id: str) -> tuple[dict, list[dict]]:
-        chat_id = uuid_text(chat_id)
-        try:
-            client = self._db()
-            rows = client.table("merge_conversations").select("id,title,created_at,updated_at").eq(
-                "id", chat_id).eq("user_id", self.owner).execute().data
-            if not rows:
-                raise HistoryError("This chat is unavailable or was deleted on another device.")
-            turns = []
-            offset = 0
-            while True:
-                batch = client.table("merge_turns").select(
-                    "id,question,answer,sources,status,created_at,finished_at"
-                ).eq("conversation_id", chat_id).eq("user_id", self.owner).order(
-                    "created_at").order("id").range(offset, offset + 199).execute().data
-                turns.extend(batch)
-                if len(batch) < 200:
-                    break
-                offset += 200
-            return rows[0], turns
-        except (AccountError, HistoryError):
-            raise
-        except Exception:
-            raise HistoryError("This chat could not load. Please try again.") from None
-
-    def begin_turn(self, chat_id: str, turn_id: str, question: str) -> dict:
-        try:
-            data = self._db().rpc("merge_begin_turn", {
-                "p_chat": uuid_text(chat_id), "p_turn": uuid_text(turn_id),
-                "p_question": question.strip(),
-            }).execute().data
-            if not data:
-                raise HistoryError("The question could not be saved.")
-            return data[0]
-        except (AccountError, HistoryError):
-            raise
-        except Exception as exc:
-            # Match only known codes; never show response bodies or SQL errors.
-            message = str(exc)
-            if "TURN_IN_PROGRESS" in message:
-                raise HistoryError("A reply is still running in this chat. Refresh in a moment or start a new chat.") from None
-            raise HistoryError("The question could not be saved. Please try again.") from None
-
-    def finish_turn(self, turn_id: str, answer: str, sources: list) -> None:
-        try:
-            self._db().rpc("merge_finish_turn", {
-                "p_turn": uuid_text(turn_id), "p_answer": answer,
-                "p_sources": sources,
-            }).execute()
-        except AccountError:
-            raise
-        except Exception:
-            raise HistoryError("Your answer is ready, but it has not saved yet.") from None
-
-    def fail_turn(self, turn_id: str) -> None:
-        try:
-            self._db().table("merge_turns").update({"status": "error"}).eq(
-                "id", uuid_text(turn_id)).eq("user_id", self.owner).eq("status", "pending").execute()
-        except Exception:
-            pass  # Stale pending turns are recoverable after five minutes.
-
-    def rename_chat(self, chat_id: str, title: str) -> None:
-        title = title.strip()
-        if not 1 <= len(title) <= 100:
-            raise HistoryError("Use a chat title between 1 and 100 characters.")
-        try:
-            data = self._db().table("merge_conversations").update({"title": title}).eq(
-                "id", uuid_text(chat_id)).eq("user_id", self.owner).execute().data
-            if not data:
-                raise ValueError("Missing chat")
-        except AccountError:
-            raise
-        except Exception:
-            raise HistoryError("The chat could not be renamed. Refresh and try again.") from None
-
-    def delete_chat(self, chat_id: str) -> None:
-        try:
-            self._db().table("merge_conversations").delete().eq(
-                "id", uuid_text(chat_id)).eq("user_id", self.owner).execute()
-        except AccountError:
-            raise
-        except Exception:
-            raise HistoryError("The chat could not be deleted. Please try again.") from None
+def _new_record(messages=None):
+    messages = list(messages or [])
+    first_question = next(
+        (m.get("content", "") for m in messages if m.get("role") == "user"),
+        "",
+    )
+    title = title_from_question(first_question) if first_question else "New conversation"
+    return {
+        "id": uuid4().hex,
+        "title": title,
+        "messages": messages,
+        "updated": time.time(),
+    }
 
 
-def new_id() -> str:
-    return str(uuid4())
+def title_from_question(question: str) -> str:
+    cleaned = " ".join(str(question).split())
+    return cleaned[:42] + ("…" if len(cleaned) > 42 else "") or "New conversation"
 
 
-def can_retry(turn: dict) -> bool:
-    if turn.get("status") == "error":
-        return True
-    try:
-        created = datetime.fromisoformat(turn["created_at"].replace("Z", "+00:00"))
-        return turn.get("status") == "pending" and (datetime.now(timezone.utc) - created).total_seconds() > 300
-    except (ValueError, KeyError, TypeError):
+def init_history(make_engine: Callable):
+    """Initialize chat history, migrating a running older app's chat if present."""
+    if "merge_chats" not in st.session_state:
+        old_messages = st.session_state.get("messages", [])
+        record = _new_record(old_messages if isinstance(old_messages, list) else [])
+        st.session_state.merge_chats = {record["id"]: record}
+        st.session_state.merge_active_id = record["id"]
+        old_engine = st.session_state.get("engine")
+        st.session_state.merge_engines = {
+            record["id"]: old_engine if old_engine is not None else make_engine()
+        }
+    if st.session_state.merge_active_id not in st.session_state.merge_chats:
+        st.session_state.merge_active_id = next(iter(st.session_state.merge_chats))
+
+
+def active_chat() -> dict:
+    return st.session_state.merge_chats[st.session_state.merge_active_id]
+
+
+def active_engine():
+    return st.session_state.merge_engines[st.session_state.merge_active_id]
+
+
+def create_chat(make_engine: Callable) -> bool:
+    """Create one new chat. Return False at the cap (never silently discard chats)."""
+    if not active_chat()["messages"]:
+        return True  # Reuse an existing empty chat instead of stacking blanks.
+    if len(st.session_state.merge_chats) >= MAX_CHATS:
         return False
+    record = _new_record()
+    st.session_state.merge_chats[record["id"]] = record
+    st.session_state.merge_engines[record["id"]] = make_engine()
+    st.session_state.merge_active_id = record["id"]
+    return True
 
 
-def restore_engine(engine, turns: list[dict]) -> None:
-    """Adapter for the existing MergeAI v2026-10-18 class's history buffer.
-
-    Restores context without sending earlier questions to APIs a second time.
-    Only completed turns enter model context; failed questions are excluded.
-    """
-    from merge_ai import MAX_HISTORY_TURNS
-    pairs = [(t["question"], t["answer"]) for t in turns
-             if t.get("status") == "complete" and isinstance(t.get("answer"), str)]
-    with engine._lock:
-        engine._turns = pairs[-MAX_HISTORY_TURNS:]
+def select_chat(chat_id: str) -> None:
+    if chat_id in st.session_state.merge_chats:
+        st.session_state.merge_active_id = chat_id
 
 
-def export_chat(chat: dict, turns: list[dict]) -> str:
-    sections = [f"# {chat['title']}"]
-    for turn in turns:
-        sections.append("## You\n\n" + turn["question"])
-        if turn.get("status") == "complete":
-            sections.append("## Merge AI\n\n" + turn["answer"])
-            for source in turn.get("sources") or []:
-                sections.append(str(source.get("url", "")))
-    return "\n\n".join(sections)
+def delete_chat(chat_id: str, make_engine: Callable) -> None:
+    chats = st.session_state.merge_chats
+    chats.pop(chat_id, None)
+    st.session_state.merge_engines.pop(chat_id, None)
+    if not chats:
+        record = _new_record()
+        chats[record["id"]] = record
+        st.session_state.merge_engines[record["id"]] = make_engine()
+    if st.session_state.merge_active_id not in chats:
+        st.session_state.merge_active_id = max(chats, key=lambda k: chats[k]["updated"])
+
+
+def rename_chat(chat_id: str, title: str) -> None:
+    if chat_id in st.session_state.merge_chats:
+        title = " ".join(title.split())[:60]
+        if title:
+            st.session_state.merge_chats[chat_id]["title"] = title
+
+
+def add_message(role: str, content: str, sources=None) -> None:
+    record = active_chat()
+    msg = {"role": role, "content": content}
+    if role == "assistant" and sources:
+        msg["sources"] = sources
+    record["messages"].append(msg)
+    record["updated"] = time.time()
+    if role == "user" and not any(
+        m["role"] == "user" for m in record["messages"][:-1]
+    ):
+        record["title"] = title_from_question(content)
+
+
+def export_history() -> str:
+    """Provide a manual backup: no credentials, no engine objects."""
+    chats = st.session_state.merge_chats.values()
+    return json.dumps(
+        {
+            "app": "Merge AI",
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "chats": [
+                {
+                    "title": c["title"],
+                    "messages": c["messages"],
+                }
+                for c in chats if c["messages"]
+            ],
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+
+def history_popover(make_engine: Callable) -> None:
+    """The same History control appears on desktop, tablet, and phone."""
+    with st.popover("History", use_container_width=True):
+        st.markdown("##### Chat history")
+        st.caption("Private to this browser session. Download a backup before refreshing or closing.")
+        ordered = sorted(
+            st.session_state.merge_chats.values(),
+            key=lambda item: item["updated"], reverse=True,
+        )
+        with st.container(height=230, border=False):
+            for chat in ordered:
+                prefix = "● " if chat["id"] == st.session_state.merge_active_id else ""
+                if st.button(
+                    prefix + chat["title"],
+                    key="open_" + chat["id"],
+                    help="Open this conversation",
+                    use_container_width=True,
+                ):
+                    select_chat(chat["id"])
+                    st.rerun()
+
+        with st.expander("Rename or delete selected chat"):
+            current = active_chat()
+            title = st.text_input(
+                "Conversation name",
+                value=current["title"],
+                max_chars=60,
+                key="rename_" + current["id"],
+            )
+            if st.button("Save name", key="save_" + current["id"]):
+                rename_chat(current["id"], title)
+                st.rerun()
+            if st.button("Delete selected chat", key="delete_" + current["id"]):
+                delete_chat(current["id"], make_engine)
+                st.rerun()
+
+        st.download_button(
+            "Download history backup",
+            data=export_history(),
+            file_name="merge_ai_chats.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+        st.caption(f"{len(ordered)} / {MAX_CHATS} conversations")
