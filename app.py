@@ -1,4 +1,4 @@
-"""Merge AI web app — responsive Streamlit screen + searchable chat history.
+"""Merge AI web app — responsive Streamlit screen, history, optional Google sign-in.
 
 Requires only Streamlit and your existing Merge AI project modules:
     merge_ai.py, interaction.py, web_search.py
@@ -6,8 +6,13 @@ Requires only Streamlit and your existing Merge AI project modules:
 The optional merge_ai_favicon.png is used if it exists. Nothing crashes if
 that image is missing. API keys should be configured in Streamlit Secrets.
 
-Chat history is isolated per Streamlit browser session. Export it from the
-History menu if you want to keep a copy; this is NOT an account-sync service.
+Chat history is isolated per Streamlit browser session, including for users who
+sign in with Google. Authentication does NOT make chat history sync across
+devices; persistent storage requires a separate database.
+
+Google sign-in works when Streamlit OIDC secrets are configured and Authlib
+is installed. Guests can use the website without logging in. Apple web OAuth
+is not activated because it requires additional Apple developer setup.
 """
 
 from __future__ import annotations
@@ -60,6 +65,11 @@ html,body,.stApp,[data-testid="stAppViewContainer"] {
 }
 [data-testid="stHeader"] {background:transparent!important;}
 [data-testid="stDecoration"],footer {display:none!important;}
+/* Hide optional Streamlit chrome when supported by this Streamlit version. */
+[data-testid="stToolbar"], #MainMenu, .stAppDeployButton {display:none!important;}
+.st-key-ma_brand_account [data-testid="stHorizontalBlock"] {
+    align-items:center!important;flex-wrap:nowrap!important;
+}
 [data-testid="stMainBlockContainer"] {
     max-width:950px!important;
     padding:1.35rem clamp(.75rem,3vw,1.7rem) 2rem!important;
@@ -75,6 +85,9 @@ html,body,.stApp,[data-testid="stAppViewContainer"] {
 .merge-sub {font-size:10px;letter-spacing:.095em;color:var(--muted);
     margin-top:3px;font-weight:600;}
 .merge-rule {height:1px;background:var(--line);margin:8px 0 13px;}
+.st-key-ma_brand_account [data-testid="stPopover"] button {
+    white-space:nowrap; font-size:13px!important;
+}
 .merge-section {display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;
     margin:15px 0 10px;}
 .merge-section strong {font-size:15px;font-weight:800;color:var(--forest);}
@@ -131,6 +144,9 @@ html,body,.stApp,[data-testid="stAppViewContainer"] {
   [data-testid="stChatMessage"] {padding:10px!important;border-radius:13px!important;}
   .merge-welcome {padding:50px 6px 36px;}
   .merge-section span {font-size:10px;}
+  .st-key-ma_brand_account [data-testid="stPopover"] button {
+    font-size:12px!important;min-height:37px!important;padding:.3rem!important;
+  }
 }
 </style>
 """,
@@ -146,6 +162,80 @@ def read_secret(name: str) -> str:
         return ""
     except Exception:
         return ""
+
+
+# Google login uses Streamlit's built-in OIDC support. The OAuth client ID,
+# secret, redirect URI and cookie signing secret are configured in Streamlit
+# Cloud > App settings > Secrets, not in this public source file.
+def google_auth_ready() -> bool:
+    try:
+        config = st.secrets.get("auth", {})
+        return all(config.get(name) for name in (
+            "redirect_uri", "cookie_secret", "client_id",
+            "client_secret", "server_metadata_url",
+        ))
+    except (KeyError, FileNotFoundError, TypeError, AttributeError):
+        return False
+
+
+def logged_in_user():
+    try:
+        if st.user.is_logged_in:
+            return st.user
+    except (AttributeError, KeyError):
+        pass
+    return None
+
+
+def current_identity() -> str:
+    # Email is not used as a database key. The OIDC subject is provider-scoped.
+    user = logged_in_user()
+    if user is None:
+        return "guest"
+    return "google:" + str(user.get("sub") or user.get("email") or "unknown")
+
+
+def erase_session_chats() -> None:
+    # Clear per-visitor data before logout; never let the next user see it.
+    for key in (
+        "ma_chats_v2", "ma_active_v2", "ma_request_times", "ma_identity_v3",
+        "messages", "merge_chats", "merge_engines", "merge_active_id", "engine",
+    ):
+        if key in st.session_state:
+            del st.session_state[key]
+
+
+def account_controls() -> None:
+    user = logged_in_user()
+    button_label = "Account" if user is None else "My account"
+    with st.popover(button_label, use_container_width=True):
+        if user is not None:
+            name = str(user.get("name") or "Merge AI member")
+            email = str(user.get("email") or "")
+            st.markdown(f"**Signed in as {name}**")
+            if email:
+                st.caption(email)
+            st.caption("Your chat history is still saved only in this browser session. "
+                       "Cloud history syncing has not been added yet.")
+            if st.button("Log out", key="ma_google_logout", use_container_width=True):
+                erase_session_chats()
+                st.logout()
+        else:
+            st.markdown("##### Welcome to Merge AI")
+            st.caption("Continue as a guest, or use a Google account.")
+            is_ready = google_auth_ready()
+            if st.button("Continue with Google", key="ma_google_login",
+                         use_container_width=True, disabled=not is_ready):
+                st.login()
+            if not is_ready:
+                st.caption("Google sign-in becomes available after its private "
+                           "Google OAuth settings are added in Streamlit Secrets.")
+            st.button("Continue with Apple", key="ma_apple_login",
+                      use_container_width=True, disabled=True,
+                      help="Apple web sign-in needs Apple Developer Program setup.")
+            st.caption("Apple sign-in is not enabled on the free setup. "
+                       "Its web configuration generally requires a paid Apple Developer membership.")
+            st.caption("**Guest access is already enabled.** Close this menu to start chatting.")
 
 
 for _key in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "TAVILY_API_KEY"):
@@ -178,6 +268,11 @@ def short_title(text: str) -> str:
 
 
 def init_state() -> None:
+    # A visitor signing in or logging out starts an isolated chat session.
+    identity = current_identity()
+    if st.session_state.get("ma_identity_v3") != identity:
+        erase_session_chats()
+        st.session_state.ma_identity_v3 = identity
     if "ma_chats_v2" not in st.session_state:
         # Import session-only history from an earlier version where possible.
         migrated = {}
@@ -342,13 +437,19 @@ def show_sources(sources) -> None:
 # --- Visible UI ---
 init_state()
 
-st.markdown(
-    '<div class="merge-brand"><div class="merge-mark">M</div>'
-    '<div><div class="merge-title">Merge AI</div>'
-    '<div class="merge-sub">THINK TOGETHER. ANSWER BETTER.</div>'
-    '</div></div><div class="merge-rule"></div>',
-    unsafe_allow_html=True,
-)
+with st.container(key="ma_brand_account"):
+    brand_col, account_col = st.columns([5, 2], gap="small", vertical_alignment="center")
+    with brand_col:
+        st.markdown(
+            '<div class="merge-brand"><div class="merge-mark">M</div>'
+            '<div><div class="merge-title">Merge AI</div>'
+            '<div class="merge-sub">THINK TOGETHER. ANSWER BETTER.</div>'
+            '</div></div>',
+            unsafe_allow_html=True,
+        )
+    with account_col:
+        account_controls()
+st.markdown('<div class="merge-rule"></div>', unsafe_allow_html=True)
 
 with st.container(key="merge_toolbar"):
     history_col, new_col, options_col = st.columns([1, 1, 1], gap="small")
