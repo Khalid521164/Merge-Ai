@@ -279,7 +279,7 @@ if question and question.strip():
         with latest_response.container():
             with st.chat_message("user", avatar="👤"):
                 st.markdown(question)
-            with st.chat_message("assistant", avatar="merge_ai_favicon.png"):
+           with st.chat_message("assistant", avatar="🤖"):
                 with st.spinner("Researching and merging your answer..."):
                     try:
                         answer = active_engine().ask(
