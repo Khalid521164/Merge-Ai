@@ -6,9 +6,8 @@ Requires only Streamlit and your existing Merge AI project modules:
 The optional merge_ai_favicon.png is used if it exists. Nothing crashes if
 that image is missing. API keys should be configured in Streamlit Secrets.
 
-Chat history is isolated per Streamlit browser session, including for users who
-sign in with Google. Authentication does NOT make chat history sync across
-devices; persistent storage requires a separate database.
+Guest chats are session-only. Signed-in Google users save chats to Supabase
+when SUPABASE_URL and SUPABASE_SECRET_KEY exist in Streamlit Secrets.
 
 Google sign-in works when Streamlit OIDC secrets are configured and Authlib
 is installed. Guests can use the website without logging in. Apple web OAuth
@@ -43,6 +42,7 @@ st.set_page_config(
 # Import only the existing AI backend. There is NO dependency on the older
 # chat_history.py or account_info.py files, so their imports cannot crash this page.
 from merge_ai import MergeAI, default_providers, safe_source_url
+from cloud_history import CloudHistory, CloudHistoryError
 
 MAX_CHATS = 20
 MAX_QUESTION_CHARS = 1000
@@ -192,7 +192,8 @@ def current_identity() -> str:
     user = logged_in_user()
     if user is None:
         return "guest"
-    return "google:" + str(user.get("sub") or user.get("email") or "unknown")
+    sub = str(user.get("sub") or "").strip()
+    return "google:" + sub if sub else "guest"
 
 
 def erase_session_chats() -> None:
@@ -200,6 +201,7 @@ def erase_session_chats() -> None:
     for key in (
         "ma_chats_v2", "ma_active_v2", "ma_request_times", "ma_identity_v3",
         "messages", "merge_chats", "merge_engines", "merge_active_id", "engine",
+        "ma_cloud_loaded", "ma_cloud_error",
     ):
         if key in st.session_state:
             del st.session_state[key]
@@ -215,8 +217,7 @@ def account_controls() -> None:
             st.markdown(f"**Signed in as {name}**")
             if email:
                 st.caption(email)
-            st.caption("Your chat history is still saved only in this browser session. "
-                       "Cloud history syncing has not been added yet.")
+            st.caption("Your chats sync with your account when cloud history is connected.")
             if st.button("Log out", key="ma_google_logout", use_container_width=True):
                 erase_session_chats()
                 st.logout()
@@ -251,7 +252,89 @@ def make_engine() -> MergeAI:
     )
 
 
-# --- Chat history: fully contained in app.py, private to this session. ---
+# --- Cloud history: accessed only from authenticated Streamlit server code. ---
+def cloud_client():
+    owner = current_identity()
+    if owner == "guest":
+        return None
+    url = read_secret("SUPABASE_URL")
+    key = read_secret("SUPABASE_SECRET_KEY")
+    if not (url and key):
+        return None
+    try:
+        return CloudHistory(url, key, owner)
+    except CloudHistoryError:
+        return None
+
+
+def restore_engine_history(engine, messages):
+    """Rebuild the existing MergeAI engine's conversational context."""
+    turns = []
+    pending = None
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        if message.get("role") == "user":
+            pending = str(message.get("content", ""))
+        elif message.get("role") == "assistant" and pending is not None:
+            turns.append((pending, str(message.get("content", ""))))
+            pending = None
+    engine._turns = turns[-12:]
+
+
+def cloud_load():
+    if st.session_state.get("ma_cloud_loaded"):
+        return
+    st.session_state.ma_cloud_loaded = True
+    client = cloud_client()
+    if client is None:
+        return
+    try:
+        rows = client.list_chats()
+        if rows:
+            imported = {}
+            for row in rows:
+                chat_id = str(uuid.UUID(str(row["id"]))).replace("-", "")
+                messages = row.get("messages")
+                if not isinstance(messages, list):
+                    messages = []
+                engine = make_engine()
+                restore_engine_history(engine, messages)
+                imported[chat_id] = {
+                    "id": chat_id, "title": str(row.get("title") or "New conversation")[:60],
+                    "messages": messages, "updated": time.time(), "engine": engine,
+                }
+            st.session_state.ma_chats_v2 = imported
+            st.session_state.ma_active_v2 = next(iter(imported))
+    except (CloudHistoryError, ValueError, KeyError, TypeError):
+        st.session_state.ma_cloud_error = "Cloud history could not be loaded. New chats may not be saved."
+
+
+def cloud_save(chat):
+    client = cloud_client()
+    if client is None:
+        return
+    try:
+        client.upsert(chat)
+        st.session_state.ma_cloud_error = ""
+    except (CloudHistoryError, ValueError, KeyError):
+        st.session_state.ma_cloud_error = "Could not save this chat to your account. Keep a backup."
+
+
+def cloud_delete(chat_id):
+    client = cloud_client()
+    if client is None:
+        return True
+    try:
+        client.delete(chat_id)
+        st.session_state.ma_cloud_error = ""
+        return True
+    except (CloudHistoryError, ValueError):
+        st.session_state.ma_cloud_error = "Could not delete this chat from your account."
+        return False
+
+
+# --- History state and UI. Guests remain session-only. ---
 def new_chat_record() -> dict:
     return {
         "id": uuid.uuid4().hex,
@@ -314,6 +397,7 @@ def init_state() -> None:
         st.session_state.ma_answer_mode = "Fast"
     if "ma_request_times" not in st.session_state:
         st.session_state.ma_request_times = []
+    cloud_load()
 
 
 def active_chat() -> dict:
@@ -337,6 +421,8 @@ def start_new_chat() -> bool:
 
 
 def delete_chat(chat_id: str) -> None:
+    if not cloud_delete(chat_id):
+        return
     chats = st.session_state.ma_chats_v2
     chats.pop(chat_id, None)
     if not chats:
@@ -356,6 +442,9 @@ def append_message(role: str, content: str, sources=None) -> None:
     chat["updated"] = time.time()
     if role == "user" and sum(m.get("role") == "user" for m in chat["messages"]) == 1:
         chat["title"] = short_title(content)
+    # Persist only after a complete user/assistant pair so cloud drafts aren't partial.
+    if role == "assistant":
+        cloud_save(chat)
 
 
 def export_history() -> str:
@@ -402,6 +491,7 @@ def show_history() -> None:
                 new_name = " ".join(name.split())[:60]
                 if new_name:
                     chat["title"] = new_name
+                    cloud_save(chat)
                     st.rerun()
             if st.button("Delete this chat", key="ma_delete_chat"):
                 delete_chat(chat["id"])
@@ -414,7 +504,8 @@ def show_history() -> None:
             use_container_width=True,
         )
         st.caption(f"{len(st.session_state.ma_chats_v2)} of {MAX_CHATS} chats. "
-                   "History lasts only for this browser session.")
+                   + ("Signed-in history syncs through Supabase." if cloud_client()
+                      else "Guest history lasts only for this browser session."))
 
 
 def show_sources(sources) -> None:
@@ -436,6 +527,10 @@ def show_sources(sources) -> None:
 
 # --- Visible UI ---
 init_state()
+if st.session_state.get("ma_cloud_error"):
+    st.warning(st.session_state.ma_cloud_error)
+if current_identity() != "guest" and cloud_client() is None:
+    st.warning("Cloud history isn't configured. Add SUPABASE_URL and SUPABASE_SECRET_KEY in Streamlit Secrets.")
 
 with st.container(key="ma_brand_account"):
     brand_col, account_col = st.columns([5, 2], gap="small", vertical_alignment="center")
@@ -507,7 +602,7 @@ with st.container():
 
 st.markdown(
     '<div class="merge-footnote">One answer from multiple AI models · '
-    'Chat history is private to this session</div>',
+    'Chats sync when signed in and cloud storage is connected</div>',
     unsafe_allow_html=True,
 )
 
