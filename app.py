@@ -258,8 +258,8 @@ def cloud():
         return None
     return CloudHistory(url, key, user["sub"])
 
-
-db = cloud()
+# Permanent cloud history disabled for now
+db = None
 
 # Clear session data when account identity changes.
 owner = user["sub"] if user else None
