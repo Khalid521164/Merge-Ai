@@ -104,13 +104,13 @@ TURN_TIMEOUT = 240  # overall deadline, including drafts and merge
 FAST_DRAFT_WAIT = 60  # Maximum wait; continue as soon as all providers finish.
 THOROUGH_DRAFT_WAIT = 90
 FAST_MERGE_WAIT = 60
-MAX_ATTEMPTS = 2  # retry only transient network / server / rate-limit errors
+MAX_ATTEMPTS = 2  # retry transient failures; do not immediately retry HTTP 429
 MAX_INPUT_CHARS = 12_000
 MAX_HISTORY_CHARS = 24_000
 MAX_HISTORY_TURNS = 12
 DRAFT_TOKENS = 6_144
-FAST_DRAFT_TOKENS = 4_096  # Room for reasoning; the prompt keeps visible drafts short.
-FINAL_TOKENS = 8_192
+FAST_DRAFT_TOKENS = 1_536  # Limit free-tier token use; raise if drafts truncate.
+FINAL_TOKENS = 3_072  # Moderate final answer budget to reduce quota pressure.
 MAX_RESPONSE_BYTES = 2_000_000
 WEB_LOOKUP_WAIT = 30
 UNVERIFIED_REPLY = "I couldn’t verify that online. Please try again or share an official website."
@@ -395,7 +395,9 @@ def _post_json(
             finally:
                 exc.close()
             failure = _provider_error(provider, status, body)
-            if status not in (408, 429, 500, 502, 503, 504):
+            # Retrying an exhausted free-tier quota immediately wastes calls.
+            # Let the final-merge fallback try another provider instead.
+            if status == 429 or status not in (408, 500, 502, 503, 504):
                 raise failure from None
         except (URLError, TimeoutError, socket.timeout, OSError, HTTPException) as exc:
             failure = _connection_error(provider, exc)
@@ -1023,7 +1025,16 @@ class MergeAI:
                 "available_candidate_count": len(drafts),
             }, ensure_ascii=False)
             merge_messages = [*history, {"role": "user", "content": packet}]
-            order = sorted((p for p in self.providers if p.name in drafts), key=lambda p: p.name != self.merger)
+            # Avoid giving the rate-limited model the first merging attempt.
+            # Drafts from all healthy providers still participate in the merge.
+            order = sorted(
+                (p for p in self.providers if p.name in drafts),
+                key=lambda p: (
+                    isinstance(errors.get(p.name), ProviderError)
+                    and errors[p.name].kind == "quota",
+                    p.name != self.merger,
+                ),
+            )
             failures: list[str] = []
             for provider in order:
                 _check(cancel, deadline)
@@ -1064,6 +1075,22 @@ class MergeAI:
                     progress(provider.name, "error", "Final merge failed; trying another responding service")
                 finally:
                     active_stream.clear()
+            # A finished independent draft is better than discarding every useful
+            # response when all editor/merger requests are rate-limited.
+            # This response is explicitly marked as UNMERGED in diagnostics.
+            if allow_partial and drafts and not cancel.is_set() and time.monotonic() < deadline:
+                preferred = next((p.name for p in order if p.name in drafts), next(iter(drafts)))
+                answer = drafts[preferred].answer.strip()
+                if answer:
+                    self.last_report["merger"] = None
+                    self.last_report["fallback_provider"] = preferred
+                    self.last_report["unmerged_fallback"] = True
+                    self.last_warning = "Final merge unavailable; returned one completed model answer."
+                    progress(preferred, "done", "Single-model fallback answer ready")
+                    if on_update is not None:
+                        on_update(answer)
+                    self._turns = (self._turns + [(question, answer)])[-MAX_HISTORY_TURNS:]
+                    return answer
             raise MergeAIError("The final merge could not complete.\n" + "\n".join(failures))
         finally:
             active_turn.clear()
