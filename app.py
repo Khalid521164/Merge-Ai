@@ -1,14 +1,17 @@
+"""Merge AI web app — responsive Streamlit screen, history, optional Google sign-in.
 
-"""Merge AI - Streamlit Website
-Google Login + Supabase Chat History + Responsive UI
+Requires only Streamlit and your existing Merge AI project modules:
+    merge_ai.py, interaction.py, web_search.py
 
-Required existing files:
-    merge_ai.py
-    interaction.py
-    web_search.py
-    cloud_history.py
+The optional merge_ai_favicon.png is used if it exists. Nothing crashes if
+that image is missing. API keys should be configured in Streamlit Secrets.
 
-All API keys must stay in Streamlit Secrets.
+Guest chats are session-only. Signed-in Google users save chats to Supabase
+when SUPABASE_URL and SUPABASE_SECRET_KEY exist in Streamlit Secrets.
+
+Google sign-in works when Streamlit OIDC secrets are configured and Authlib
+is installed. Guests can use the website without logging in. Apple web OAuth
+is not activated because it requires additional Apple developer setup.
 """
 
 from __future__ import annotations
@@ -24,283 +27,159 @@ from urllib.parse import urlsplit
 
 import streamlit as st
 
-from merge_ai import MergeAI, default_providers, safe_source_url
-from cloud_history import CloudHistory, CloudHistoryError
-
-
-# ==========================================
-# PAGE CONFIGURATION
-# ==========================================
-
-ICON_PATH = Path(__file__).parent / "merge_ai_favicon.png"
-
-FAVICON = str(ICON_PATH) if ICON_PATH.is_file() else "🟢"
-AI_AVATAR = FAVICON if ICON_PATH.is_file() else "🤖"
+# --- Page setup: do not require an image that might be missing on GitHub. ---
+ICON_FILE = Path(__file__).resolve().parent / "merge_ai_favicon.png"
+ICON = str(ICON_FILE) if ICON_FILE.is_file() else "🟢"
+ASSISTANT_AVATAR = ICON if ICON_FILE.is_file() else "🤖"
 
 st.set_page_config(
     page_title="Merge AI | One clearer answer",
-    page_icon=FAVICON,
+    page_icon=ICON,
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
+# Import only the existing AI backend. There is NO dependency on the older
+# chat_history.py or account_info.py files, so their imports cannot crash this page.
+from merge_ai import MergeAI, default_providers, safe_source_url
+from cloud_history import CloudHistory, CloudHistoryError
+from voice_chat import voice_chat
+
 MAX_CHATS = 20
-MAX_INPUT = 1000
-MAX_PER_HOUR = 20
+MAX_QUESTION_CHARS = 1000
+MAX_QUESTIONS_PER_HOUR = 20
 
 
-# ==========================================
-# PROFESSIONAL RESPONSIVE DESIGN
-# ==========================================
-
-st.markdown("""
+# --- Theme: identical screen components at all breakpoints. ---
+st.markdown(
+    """
 <style>
-
 :root {
-    --bg: #faf8f4;
-    --white: #ffffff;
-    --green: #326957;
-    --dark: #193e35;
-    --mint: #f1f7f2;
-    --line: #dfebe1;
-    --muted: #708178;
+    --cream:#faf8f4; --paper:#ffffff; --forest:#193e35;
+    --green:#326957; --muted:#708178; --line:#dfebe1; --mint:#f1f7f2;
 }
-
-html, body, .stApp {
-    background: var(--bg) !important;
-    color: var(--dark) !important;
-    font-family: system-ui, sans-serif;
-    color-scheme: light !important;
+html,body,.stApp,[data-testid="stAppViewContainer"] {
+    background:var(--cream)!important;
+    color-scheme:light!important;
+    color:var(--forest)!important;
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif!important;
 }
-
-[data-testid="stAppViewContainer"] {
-    background: var(--bg) !important;
+[data-testid="stHeader"] {background:transparent!important;}
+[data-testid="stDecoration"],footer {display:none!important;}
+/* Hide optional Streamlit chrome when supported by this Streamlit version. */
+[data-testid="stToolbar"], #MainMenu, .stAppDeployButton {display:none!important;}
+.st-key-ma_brand_account [data-testid="stHorizontalBlock"] {
+    align-items:center!important;flex-wrap:nowrap!important;
 }
-
 [data-testid="stMainBlockContainer"] {
-    max-width: 950px !important;
-    padding: 1.3rem 1.4rem 2rem !important;
+    max-width:950px!important;
+    padding:1.35rem clamp(.75rem,3vw,1.7rem) 2rem!important;
 }
-
-[data-testid="stHeader"] {
-    background: transparent !important;
+.merge-brand {display:flex;align-items:center;gap:12px;padding-bottom:10px;}
+.merge-mark {
+    width:48px;height:48px;flex:none;display:grid;place-items:center;
+    border-radius:15px;background:var(--green);color:white;
+    font-size:25px;font-weight:850;box-shadow:0 8px 20px #32695723;
 }
-
-[data-testid="stToolbar"],
-[data-testid="stDecoration"],
-#MainMenu,
-footer {
-    display: none !important;
+.merge-title {font-size:clamp(22px,3.8vw,28px);font-weight:800;
+    letter-spacing:-1px;line-height:1.2;color:var(--forest);}
+.merge-sub {font-size:10px;letter-spacing:.095em;color:var(--muted);
+    margin-top:3px;font-weight:600;}
+.merge-rule {height:1px;background:var(--line);margin:8px 0 13px;}
+.st-key-ma_brand_account [data-testid="stPopover"] button {
+    white-space:nowrap; font-size:13px!important;
 }
-
-.ma-logo {
-    display: flex;
-    align-items: center;
-    gap: 13px;
-    margin-bottom: 13px;
-}
-
-.ma-mark {
-    background: var(--green);
-    color: white;
-    border-radius: 15px;
-    width: 49px;
-    height: 49px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 25px;
-    font-weight: 850;
-}
-
-.ma-name {
-    color: var(--dark);
-    font-size: 27px;
-    font-weight: 800;
-    letter-spacing: -1px;
-    line-height: 1.2;
-}
-
-.ma-subtitle {
-    color: var(--muted);
-    font-size: 10px;
-    letter-spacing: 1px;
-    margin-top: 4px;
-}
-
-.ma-line {
-    height: 1px;
-    background: var(--line);
-    margin-bottom: 12px;
-}
-
-.stButton > button,
-[data-testid="stPopover"] button {
-    border: 1px solid var(--line) !important;
-    background: white !important;
-    color: var(--dark) !important;
-    border-radius: 12px !important;
-    min-height: 41px !important;
-    font-weight: 600 !important;
-}
-
-.stButton > button:hover,
-[data-testid="stPopover"] button:hover {
-    border-color: #a4c2ac !important;
-    background: var(--mint) !important;
-}
-
+.merge-section {display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;
+    margin:15px 0 10px;}
+.merge-section strong {font-size:15px;font-weight:800;color:var(--forest);}
+.merge-section span {font-size:11px;color:var(--muted);}
+[data-testid="stVerticalBlock"] {gap:.65rem;}
 .st-key-merge_toolbar [data-testid="stHorizontalBlock"] {
-    flex-wrap: nowrap !important;
-    gap: 7px !important;
+    flex-direction:row!important;flex-wrap:nowrap!important;gap:.4rem!important;
 }
-
 .st-key-merge_toolbar [data-testid="column"] {
-    min-width: 0 !important;
-    flex: 1 1 0 !important;
-    width: 0 !important;
+    min-width:0!important;flex:1 1 0!important;width:0!important;
 }
-
+.stButton>button, [data-testid="stPopover"] button {
+    border:1px solid var(--line)!important;color:var(--forest)!important;
+    background:var(--paper)!important;border-radius:12px!important;
+    font-weight:650!important;min-height:40px!important;
+}
+.stButton>button:hover,[data-testid="stPopover"] button:hover {
+    border-color:#9fbbab!important;background:var(--mint)!important;
+}
 .st-key-merge_conversation {
-    background: white !important;
-    border: 1px solid var(--line) !important;
-    border-radius: 20px !important;
-    box-shadow: 0 7px 25px #173c3510;
+    border-radius:20px!important;border:1px solid var(--line)!important;
+    background:var(--paper)!important;box-shadow:0 8px 25px #173c3510;
 }
-
 [data-testid="stChatMessage"] {
-    background: white !important;
-    border: 1px solid var(--line) !important;
-    border-radius: 15px !important;
-    padding: 12px !important;
-    margin-bottom: 8px !important;
+    background:var(--paper)!important;border:1px solid var(--line)!important;
+    border-radius:16px!important;padding:12px 14px!important;margin:7px 0!important;
+    box-shadow:0 2px 8px #173c3506;
 }
-
-[data-testid="stChatMessageContent"] {
-    overflow-wrap: anywhere;
-    min-width: 0;
+[data-testid="stChatMessage"]:has([data-testid="stChatMessageAvatarUser"]) {
+    background:var(--mint)!important;
 }
-
-.ma-welcome {
-    text-align: center;
-    padding: 80px 10px 55px;
-}
-
-.ma-welcome-icon {
-    background: var(--mint);
-    color: var(--green);
-    width: 58px;
-    height: 58px;
-    border-radius: 18px;
-    display: grid;
-    place-items: center;
-    margin: auto auto 25px;
-    font-size: 30px;
-}
-
-.ma-welcome h2 {
-    color: var(--dark);
-    font-size: clamp(22px, 4vw, 30px);
-    letter-spacing: -0.7px;
-}
-
-.ma-welcome p {
-    color: var(--muted);
-    font-size: 13px;
-    line-height: 1.8;
-}
-
-.ma-section {
-    color: var(--dark);
-    font-weight: 750;
-    margin: 17px 0 9px;
-    font-size: 14px;
-}
-
-.ma-section span {
-    color: var(--muted);
-    font-size: 11px;
-    font-weight: 400;
-}
-
+[data-testid="stChatMessageContent"] {min-width:0;overflow-wrap:anywhere;}
+[data-testid="stChatMessageContent"] p {line-height:1.6;}
+.merge-welcome {text-align:center;padding:85px 12px 70px;color:var(--forest);}
+.merge-welcome-mark {width:55px;height:55px;margin:0 auto 18px;
+    border-radius:18px;background:var(--mint);color:var(--green);
+    font-weight:900;font-size:29px;display:grid;place-items:center;}
+.merge-welcome h2 {font-size:clamp(20px,4vw,29px);line-height:1.3;
+    letter-spacing:-.6px;margin:0 0 12px;font-weight:850;}
+.merge-welcome p {font-size:13px;color:var(--muted);line-height:1.6;margin:0;}
 [data-testid="stChatInput"] {
-    border: 1px solid #cbded0 !important;
-    background: white !important;
-    border-radius: 15px !important;
+    border:1px solid #cbded0!important;border-radius:15px!important;
+    background:white!important;box-shadow:0 6px 22px #173c3511!important;
 }
-
-.ma-footer {
-    color: var(--muted);
-    text-align: center;
-    font-size: 10px;
-    margin-top: 15px;
+[data-testid="stChatInput"] textarea {font-size:14px!important;color:var(--forest)!important;}
+.merge-footnote {text-align:center;font-size:11px;color:var(--muted);margin:10px 0 0;}
+@media(max-width:650px) {
+  [data-testid="stMainBlockContainer"] {padding:1rem .6rem 1.5rem!important;}
+  .merge-mark {width:42px;height:42px;font-size:23px;border-radius:13px;}
+  .merge-brand {gap:9px;}
+  .merge-sub {font-size:9px;letter-spacing:.055em;}
+  .st-key-merge_toolbar button {min-height:38px!important;font-size:12px!important;
+    padding-left:.3rem!important;padding-right:.3rem!important;}
+  [data-testid="stChatMessage"] {padding:10px!important;border-radius:13px!important;}
+  .merge-welcome {padding:50px 6px 36px;}
+  .merge-section span {font-size:10px;}
+  .st-key-ma_brand_account [data-testid="stPopover"] button {
+    font-size:12px!important;min-height:37px!important;padding:.3rem!important;
+  }
 }
-
-@media (max-width: 650px) {
-    [data-testid="stMainBlockContainer"] {
-        padding: 0.8rem 0.6rem 1.5rem !important;
-    }
-
-    .ma-name {
-        font-size: 22px;
-    }
-
-    .ma-mark {
-        width: 42px;
-        height: 42px;
-        font-size: 22px;
-    }
-
-    .ma-subtitle {
-        font-size: 8px;
-    }
-
-    .ma-welcome {
-        padding: 45px 5px 35px;
-    }
-
-    .st-key-merge_toolbar button {
-        font-size: 12px !important;
-        padding-left: 4px !important;
-        padding-right: 4px !important;
-    }
-
-    [data-testid="stChatMessage"] {
-        padding: 9px !important;
-    }
-}
-
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
-# ==========================================
-# SECRET CONFIGURATION
-# ==========================================
-
-def get_secret(name):
+# --- Secrets stay server-side. ---
+def read_secret(name: str) -> str:
     try:
         return str(st.secrets.get(name, "") or "").strip()
+    except (KeyError, FileNotFoundError):
+        return ""
     except Exception:
         return ""
 
 
-for key in (
-    "GEMINI_API_KEY",
-    "GROQ_API_KEY",
-    "OPENROUTER_API_KEY",
-    "TAVILY_API_KEY",
-):
-    value = get_secret(key)
-    if value:
-        os.environ[key] = value
+# Google login uses Streamlit's built-in OIDC support. The OAuth client ID,
+# secret, redirect URI and cookie signing secret are configured in Streamlit
+# Cloud > App settings > Secrets, not in this public source file.
+def google_auth_ready() -> bool:
+    try:
+        config = st.secrets.get("auth", {})
+        return all(config.get(name) for name in (
+            "redirect_uri", "cookie_secret", "client_id",
+            "client_secret", "server_metadata_url",
+        ))
+    except (KeyError, FileNotFoundError, TypeError, AttributeError):
+        return False
 
 
-# ==========================================
-# GOOGLE AUTHENTICATION
-# ==========================================
-
-def current_user():
+def logged_in_user():
     try:
         if st.user.is_logged_in:
             return st.user
@@ -309,846 +188,492 @@ def current_user():
     return None
 
 
-def owner_id():
-    user = current_user()
-
+def current_identity() -> str:
+    # Email is not used as a database key. The OIDC subject is provider-scoped.
+    user = logged_in_user()
     if user is None:
-        return None
-
-    subject = str(user.get("sub") or "").strip()
-
-    if not subject:
-        return None
-
-    return "google:" + subject
+        return "guest"
+    sub = str(user.get("sub") or "").strip()
+    return "google:" + sub if sub else "guest"
 
 
-def google_ready():
-    try:
-        auth = st.secrets.get("auth", {})
-        return all(
-            auth.get(k)
-            for k in (
-                "redirect_uri",
-                "cookie_secret",
-                "client_id",
-                "client_secret",
-                "server_metadata_url",
-            )
-        )
-    except Exception:
-        return False
-
-
-def clear_account_session():
+def erase_session_chats() -> None:
+    # Clear per-visitor data before logout; never let the next user see it.
     for key in (
-        "ma_chats_v2",
-        "ma_active_v2",
-        "ma_identity",
-        "ma_cloud_loaded",
-        "ma_cloud_error",
-        "ma_request_times",
+        "ma_chats_v2", "ma_active_v2", "ma_request_times", "ma_identity_v3",
+        "messages", "merge_chats", "merge_engines", "merge_active_id", "engine",
+        "ma_cloud_loaded", "ma_cloud_error",
     ):
-        st.session_state.pop(key, None)
+        if key in st.session_state:
+            del st.session_state[key]
 
 
-def account_menu():
-    user = current_user()
-
-    with st.popover(
-        "My account" if user else "Account",
-        use_container_width=True,
-    ):
-
-        if user:
-            st.markdown(
-                "**Signed in as "
-                + str(user.get("name") or "Merge AI user")
-                + "**"
-            )
-
-            if user.get("email"):
-                st.caption(str(user.get("email")))
-
-            if cloud_connection() is not None:
-                st.caption("Cloud chat history is configured.")
-            else:
-                st.warning("Cloud history is not configured.")
-
-            if st.button(
-                "Log out",
-                key="ma_logout",
-                use_container_width=True,
-            ):
-                clear_account_session()
+def account_controls() -> None:
+    user = logged_in_user()
+    button_label = "Account" if user is None else "My account"
+    with st.popover(button_label, use_container_width=True):
+        if user is not None:
+            name = str(user.get("name") or "Merge AI member")
+            email = str(user.get("email") or "")
+            st.markdown(f"**Signed in as {name}**")
+            if email:
+                st.caption(email)
+            st.caption("Your chats sync with your account when cloud history is connected.")
+            if st.button("Log out", key="ma_google_logout", use_container_width=True):
+                erase_session_chats()
                 st.logout()
-
         else:
-            st.markdown("#### Welcome to Merge AI")
-            st.caption("Sign in to save your conversations.")
-
-            ready = google_ready()
-
-            if st.button(
-                "Continue with Google",
-                key="ma_google",
-                use_container_width=True,
-                disabled=not ready,
-            ):
+            st.markdown("##### Welcome to Merge AI")
+            st.caption("Continue as a guest, or use a Google account.")
+            is_ready = google_auth_ready()
+            if st.button("Continue with Google", key="ma_google_login",
+                         use_container_width=True, disabled=not is_ready):
                 st.login()
-
-            if not ready:
-                st.caption(
-                    "Configure Google OAuth in Streamlit Secrets."
-                )
-
-            st.button(
-                "Continue with Apple",
-                key="ma_apple",
-                disabled=True,
-                use_container_width=True,
-            )
-
-            st.caption(
-                "You can continue as a guest without signing in."
-            )
+            if not is_ready:
+                st.caption("Google sign-in becomes available after its private "
+                           "Google OAuth settings are added in Streamlit Secrets.")
+            st.button("Continue with Apple", key="ma_apple_login",
+                      use_container_width=True, disabled=True,
+                      help="Apple web sign-in needs Apple Developer Program setup.")
+            st.caption("Apple sign-in is not enabled on the free setup. "
+                       "Its web configuration generally requires a paid Apple Developer membership.")
+            st.caption("**Guest access is already enabled.** Close this menu to start chatting.")
 
 
-# ==========================================
-# AI BACKEND
-# ==========================================
+for _key in ("GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "TAVILY_API_KEY"):
+    _val = read_secret(_key)
+    if _val:
+        os.environ[_key] = _val
 
-def new_engine():
+
+def make_engine() -> MergeAI:
     return MergeAI(
         providers=default_providers(),
         tavily_api_key=os.environ.get("TAVILY_API_KEY", ""),
     )
 
 
-def restore_context(engine, messages):
-    turns = []
-    question = None
+# --- Cloud history: accessed only from authenticated Streamlit server code. ---
+def cloud_client():
+    owner = current_identity()
+    if owner == "guest":
+        return None
+    url = read_secret("SUPABASE_URL")
+    key = read_secret("SUPABASE_SECRET_KEY")
+    if not (url and key):
+        return None
+    try:
+        return CloudHistory(url, key, owner)
+    except CloudHistoryError:
+        return None
 
+
+def restore_engine_history(engine, messages):
+    """Rebuild the existing MergeAI engine's conversational context."""
+    turns = []
+    pending = None
     for message in messages:
         if not isinstance(message, dict):
             continue
-
         if message.get("role") == "user":
-            question = str(message.get("content", ""))
-
-        elif message.get("role") == "assistant" and question is not None:
-            turns.append(
-                (question, str(message.get("content", "")))
-            )
-            question = None
-
+            pending = str(message.get("content", ""))
+        elif message.get("role") == "assistant" and pending is not None:
+            turns.append((pending, str(message.get("content", ""))))
+            pending = None
     engine._turns = turns[-12:]
 
 
-# ==========================================
-# SUPABASE CLOUD CONNECTION
-# ==========================================
-
-def cloud_connection():
-    owner = owner_id()
-
-    if not owner:
-        return None
-
-    url = get_secret("SUPABASE_URL")
-    secret = get_secret("SUPABASE_SECRET_KEY")
-
-    if not url or not secret:
-        return None
-
-    try:
-        return CloudHistory(url, secret, owner)
-    except CloudHistoryError:
-        logging.warning("Cloud history configuration failed")
-        return None
-
-
-def save_cloud_chat(chat):
-    if owner_id() is None:
-        return True
-
-    client = cloud_connection()
-
+def cloud_load():
+    if st.session_state.get("ma_cloud_loaded"):
+        return
+    client = cloud_client()
+    st.session_state.ma_cloud_loaded = True
     if client is None:
-        st.session_state.ma_cloud_error = (
-            "Cloud history is unavailable. "
-            "This chat is not saved to your account."
-        )
-        return False
+        return
+    try:
+        rows = client.list_chats()
+        if rows:
+            imported = {}
+            for row in rows:
+                chat_id = str(uuid.UUID(str(row["id"]))).replace("-", "")
+                messages = row.get("messages")
+                if not isinstance(messages, list):
+                    messages = []
+                engine = make_engine()
+                restore_engine_history(engine, messages)
+                imported[chat_id] = {
+                    "id": chat_id, "title": str(row.get("title") or "New conversation")[:60],
+                    "messages": messages, "updated": time.time(), "engine": engine,
+                }
+            st.session_state.ma_chats_v2 = imported
+            st.session_state.ma_active_v2 = next(iter(imported))
+    except (CloudHistoryError, ValueError, KeyError, TypeError):
+        st.session_state.ma_cloud_error = "Cloud history could not be loaded. Chats are temporary until Supabase reconnects."
 
+
+def cloud_save(chat):
+    client = cloud_client()
+    if client is None:
+        if current_identity() != "guest":
+            st.session_state.ma_cloud_error = "Cloud history is unavailable. Download a chat backup to avoid losing messages."
+        return
     try:
         client.upsert(chat)
         st.session_state.ma_cloud_error = ""
-        return True
-
-    except CloudHistoryError:
-        logging.exception("Could not save cloud chat")
-        st.session_state.ma_cloud_error = (
-            "Could not save your chat to Supabase. "
-            "Download a backup from History."
-        )
-        return False
+    except (CloudHistoryError, ValueError, KeyError):
+        st.session_state.ma_cloud_error = "Could not save this chat to your account. Keep a backup."
 
 
-def load_cloud_chats():
-    if st.session_state.get("ma_cloud_loaded", False):
-        return
-
-    st.session_state.ma_cloud_loaded = True
-
-    client = cloud_connection()
-
+def cloud_delete(chat_id):
+    client = cloud_client()
     if client is None:
-        if owner_id() is not None:
-            st.session_state.ma_cloud_error = (
-                "Cloud history isn't configured. "
-                "Check your Supabase settings."
-            )
-        return
-
-    try:
-        records = client.list_chats()
-
-        imported = {}
-
-        for row in records:
-            chat_id = str(uuid.UUID(str(row["id"]))).replace("-", "")
-
-            messages = row.get("messages", [])
-
-            if not isinstance(messages, list):
-                messages = []
-
-            engine = new_engine()
-            restore_context(engine, messages)
-
-            imported[chat_id] = {
-                "id": chat_id,
-                "title": str(row.get("title") or "New conversation")[:60],
-                "messages": messages,
-                "updated": time.time(),
-                "engine": engine,
-            }
-
-        if imported:
-            existing = st.session_state.ma_chats_v2
-
-            # Preserve any local chats until explicitly deleted.
-            existing.update(imported)
-
-            st.session_state.ma_active_v2 = next(iter(imported))
-
-        st.session_state.ma_cloud_error = ""
-
-    except (CloudHistoryError, ValueError, KeyError, TypeError):
-        logging.exception("Could not load cloud history")
-
-        st.session_state.ma_cloud_error = (
-            "Cloud history could not be loaded. "
-            "New chats may not be saved."
-        )
-
-
-def delete_cloud_chat(chat_id):
-    if owner_id() is None:
+        if current_identity() != "guest":
+            st.session_state.ma_cloud_error = "Cloud history is unavailable; cannot safely delete this saved chat."
+            return False
         return True
-
-    client = cloud_connection()
-
-    if client is None:
-        st.session_state.ma_cloud_error = (
-            "Cloud history unavailable. Cannot delete saved chat."
-        )
-        return False
-
     try:
         client.delete(chat_id)
+        st.session_state.ma_cloud_error = ""
         return True
-
-    except CloudHistoryError:
-        logging.exception("Cloud chat deletion failed")
-        st.session_state.ma_cloud_error = (
-            "Could not delete the cloud conversation."
-        )
+    except (CloudHistoryError, ValueError):
+        st.session_state.ma_cloud_error = "Could not delete this chat from your account."
         return False
 
 
-# ==========================================
-# CHAT HISTORY MANAGEMENT
-# ==========================================
-
-def make_chat():
+# --- History state and UI. Guests remain session-only. ---
+def new_chat_record() -> dict:
     return {
         "id": uuid.uuid4().hex,
         "title": "New conversation",
         "messages": [],
         "updated": time.time(),
-        "engine": new_engine(),
+        "engine": make_engine(),
     }
 
 
-def ensure_history():
-    """Always initialize history, even if Supabase is unavailable."""
+def short_title(text: str) -> str:
+    text = " ".join(text.split())
+    return text[:42] + ("…" if len(text) > 42 else "") or "New conversation"
 
+
+def init_state() -> None:
+    # A visitor signing in or logging out starts an isolated chat session.
+    identity = current_identity()
+    if st.session_state.get("ma_identity_v3") != identity:
+        erase_session_chats()
+        st.session_state.ma_identity_v3 = identity
+    if "ma_chats_v2" not in st.session_state:
+        # Import session-only history from an earlier version where possible.
+        migrated = {}
+        old = st.session_state.get("merge_chats")
+        engines = st.session_state.get("merge_engines", {})
+        if isinstance(old, dict):
+            for chat_id, item in list(old.items())[:MAX_CHATS]:
+                if not isinstance(item, dict):
+                    continue
+                migrated[chat_id] = {
+                    "id": chat_id,
+                    "title": str(item.get("title", "New conversation"))[:60],
+                    "messages": list(item.get("messages") or []),
+                    "updated": float(item.get("updated", time.time())),
+                    "engine": engines.get(chat_id) or make_engine(),
+                }
+        if migrated:
+            st.session_state.ma_chats_v2 = migrated
+            active_id = st.session_state.get("merge_active_id")
+            st.session_state.ma_active_v2 = (
+                active_id if active_id in migrated else next(iter(migrated))
+            )
+        else:
+            record = new_chat_record()
+            old_messages = st.session_state.get("messages")
+            if isinstance(old_messages, list) and old_messages:
+                record["messages"] = list(old_messages)
+                first = next(
+                    (m.get("content", "") for m in old_messages
+                     if isinstance(m, dict) and m.get("role") == "user"), ""
+                )
+                record["title"] = short_title(first)
+                record["engine"] = st.session_state.get("engine") or make_engine()
+            st.session_state.ma_chats_v2 = {record["id"]: record}
+            st.session_state.ma_active_v2 = record["id"]
+    if "ma_web_on" not in st.session_state:
+        st.session_state.ma_web_on = True
+    if "ma_answer_mode" not in st.session_state:
+        st.session_state.ma_answer_mode = "Fast"
+    if "ma_request_times" not in st.session_state:
+        st.session_state.ma_request_times = []
+    # Never let a failed cloud request leave the History widget without state.
+    ensure_chat_state()
+    cloud_load()
+    ensure_chat_state()
+
+
+def ensure_chat_state() -> None:
+    """Make History safe even after auth transitions or cloud failures."""
     chats = st.session_state.get("ma_chats_v2")
-
     if not isinstance(chats, dict) or not chats:
-        record = make_chat()
-
-        st.session_state.ma_chats_v2 = {
-            record["id"]: record
-        }
-
-        st.session_state.ma_active_v2 = record["id"]
-
-    elif (
-        st.session_state.get("ma_active_v2")
-        not in st.session_state.ma_chats_v2
-    ):
-        st.session_state.ma_active_v2 = next(
-            iter(st.session_state.ma_chats_v2)
-        )
-
-
-def initialize():
-    identity = owner_id() or "guest"
-
-    if st.session_state.get("ma_identity") != identity:
-        clear_account_session()
-        st.session_state.ma_identity = identity
-
-    ensure_history()
-
-    st.session_state.setdefault("ma_web_on", True)
-    st.session_state.setdefault("ma_mode", "Fast")
-    st.session_state.setdefault("ma_request_times", [])
-    st.session_state.setdefault("ma_cloud_error", "")
-
-    load_cloud_chats()
-
-    # Important: prevent History from crashing.
-    ensure_history()
-
-
-def active_chat():
-    ensure_history()
-
-    return st.session_state.ma_chats_v2[
-        st.session_state.ma_active_v2
-    ]
-
-
-def create_chat():
-    current = active_chat()
-
-    if not current["messages"]:
-        return True
-
-    if len(st.session_state.ma_chats_v2) >= MAX_CHATS:
-        return False
-
-    chat = make_chat()
-
-    st.session_state.ma_chats_v2[chat["id"]] = chat
-    st.session_state.ma_active_v2 = chat["id"]
-
-    return True
-
-
-def chat_title(question):
-    question = " ".join(str(question).split())
-
-    return (
-        question[:42] + ("…" if len(question) > 42 else "")
-        if question else "New conversation"
-    )
-
-
-def add_message(role, content, sources=None):
-    chat = active_chat()
-
-    record = {
-        "role": role,
-        "content": content,
-    }
-
-    if role == "assistant" and sources:
-        record["sources"] = sources
-
-    chat["messages"].append(record)
-    chat["updated"] = time.time()
-
-    if role == "user":
-        questions = sum(
-            m.get("role") == "user"
-            for m in chat["messages"]
-        )
-
-        if questions == 1:
-            chat["title"] = chat_title(content)
-
-
-def remove_chat(chat_id):
-    if not delete_cloud_chat(chat_id):
-        return False
-
-    chats = st.session_state.ma_chats_v2
-    chats.pop(chat_id, None)
-
-    if not chats:
-        new = make_chat()
-        chats[new["id"]] = new
-
-    if st.session_state.ma_active_v2 not in chats:
+        item = new_chat_record()
+        st.session_state.ma_chats_v2 = {item["id"]: item}
+        st.session_state.ma_active_v2 = item["id"]
+    elif st.session_state.get("ma_active_v2") not in chats:
         st.session_state.ma_active_v2 = next(iter(chats))
 
+
+def active_chat() -> dict:
+    chats = st.session_state.ma_chats_v2
+    chat_id = st.session_state.ma_active_v2
+    if chat_id not in chats:
+        st.session_state.ma_active_v2 = next(iter(chats))
+    return chats[st.session_state.ma_active_v2]
+
+
+def start_new_chat() -> bool:
+    if not active_chat()["messages"]:
+        return True
+    chats = st.session_state.ma_chats_v2
+    if len(chats) >= MAX_CHATS:
+        return False
+    item = new_chat_record()
+    chats[item["id"]] = item
+    st.session_state.ma_active_v2 = item["id"]
     return True
 
 
-def history_backup():
-    chats = st.session_state.ma_chats_v2.values()
+def delete_chat(chat_id: str) -> None:
+    if not cloud_delete(chat_id):
+        return
+    chats = st.session_state.ma_chats_v2
+    chats.pop(chat_id, None)
+    if not chats:
+        item = new_chat_record()
+        chats[item["id"]] = item
+    if st.session_state.ma_active_v2 not in chats:
+        st.session_state.ma_active_v2 = max(chats, key=lambda key: chats[key]["updated"])
 
-    data = {
+
+def append_message(role: str, content: str, sources=None) -> None:
+    chat = active_chat()
+    chat["messages"].append({
+        "role": role,
+        "content": content,
+        **({"sources": sources} if sources and role == "assistant" else {}),
+    })
+    chat["updated"] = time.time()
+    if role == "user" and sum(m.get("role") == "user" for m in chat["messages"]) == 1:
+        chat["title"] = short_title(content)
+    # Persist only after a complete user/assistant pair so cloud drafts aren't partial.
+    if role == "assistant":
+        cloud_save(chat)
+
+
+def export_history() -> str:
+    records = sorted(st.session_state.ma_chats_v2.values(),
+                     key=lambda chat: chat["updated"], reverse=True)
+    return json.dumps({
         "app": "Merge AI",
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "chats": [
-            {
-                "title": chat["title"],
-                "messages": chat["messages"],
-            }
-            for chat in chats if chat["messages"]
+            {"title": chat["title"], "messages": chat["messages"]}
+            for chat in records if chat["messages"]
         ],
-    }
-
-    return json.dumps(data, ensure_ascii=False, indent=2)
+    }, ensure_ascii=False, indent=2)
 
 
-# ==========================================
-# CHAT HISTORY COMPONENT
-# ==========================================
-
-def history_menu():
-    ensure_history()
-
+def show_history() -> None:
+    ensure_chat_state()
     with st.popover("History", use_container_width=True):
-
-        st.markdown("#### Your conversations")
-
+        st.markdown("##### Chat history")
         search = st.text_input(
-            "Search chats",
-            placeholder="Search chat history...",
-            key="ma_search",
+            "Search previous chats", placeholder="Search titles or messages...",
+            key="ma_history_search",
         ).strip().casefold()
-
-        chats = sorted(
-            st.session_state.ma_chats_v2.values(),
-            key=lambda c: c["updated"],
-            reverse=True,
-        )
-
+        items = sorted(st.session_state.ma_chats_v2.values(),
+                       key=lambda chat: chat["updated"], reverse=True)
         if search:
-            chats = [
-                c for c in chats
-                if search in c["title"].casefold()
-                or any(
-                    search in str(m.get("content", "")).casefold()
-                    for m in c["messages"]
-                )
-            ]
-
-        with st.container(height=230, border=False):
-
-            if not chats:
+            items = [c for c in items if search in c["title"].casefold() or any(
+                search in str(m.get("content", "")).casefold() for m in c["messages"]
+            )]
+        with st.container(height=225, border=False):
+            if not items:
                 st.caption("No matching conversations.")
-
-            for chat in chats:
-
-                selected = (
-                    chat["id"] == st.session_state.ma_active_v2
-                )
-
-                label = (
-                    ("● " if selected else "")
-                    + chat["title"]
-                )
-
-                if st.button(
-                    label,
-                    key="open_" + chat["id"],
-                    use_container_width=True,
-                ):
-                    st.session_state.ma_active_v2 = chat["id"]
+            for item in items:
+                selected = item["id"] == st.session_state.ma_active_v2
+                title = ("● " if selected else "") + item["title"]
+                if st.button(title, key="ma_open_" + item["id"],
+                             use_container_width=True):
+                    st.session_state.ma_active_v2 = item["id"]
                     st.rerun()
-
-        with st.expander("Rename or delete chat"):
-
+        with st.expander("Rename or delete current chat"):
             chat = active_chat()
-
-            title = st.text_input(
-                "Conversation title",
-                value=chat["title"],
-                max_chars=60,
-                key="rename_" + chat["id"],
-            )
-
-            if st.button(
-                "Save name",
-                key="save_name_" + chat["id"],
-            ):
-                new_title = title.strip()
-
-                if new_title:
-                    chat["title"] = new_title
-                    chat["updated"] = time.time()
-                    save_cloud_chat(chat)
+            name = st.text_input("Chat name", value=chat["title"],
+                                 max_chars=60, key="ma_rename_" + chat["id"])
+            if st.button("Save name", key="ma_save_name"):
+                new_name = " ".join(name.split())[:60]
+                if new_name:
+                    chat["title"] = new_name
+                    cloud_save(chat)
                     st.rerun()
-
-            if st.button(
-                "Delete chat",
-                key="delete_" + chat["id"],
-            ):
-                if remove_chat(chat["id"]):
-                    st.rerun()
-
+            if st.button("Delete this chat", key="ma_delete_chat"):
+                delete_chat(chat["id"])
+                st.rerun()
         st.download_button(
             "Download chat backup",
-            data=history_backup(),
-            file_name="merge_ai_history.json",
+            data=export_history(),
+            file_name="merge_ai_chat_history.json",
             mime="application/json",
             use_container_width=True,
         )
-
-        if owner_id():
-            if st.session_state.ma_cloud_error:
-                st.caption("Cloud sync is currently unavailable.")
-            elif cloud_connection():
-                st.caption("Google account cloud history enabled.")
-            else:
-                st.caption("Cloud sync is not configured.")
-        else:
-            st.caption("Guest chats are temporary.")
+        st.caption(f"{len(st.session_state.ma_chats_v2)} of {MAX_CHATS} chats. "
+                   + ("Signed-in history syncs through Supabase." if cloud_client()
+                      else "Guest history lasts only for this browser session."))
 
 
-# ==========================================
-# TAVILY SOURCE LINKS
-# ==========================================
-
-def show_sources(sources):
+def show_sources(sources) -> None:
     if not isinstance(sources, list):
         return
-
-    verified = []
-
+    valid = []
     for item in sources[:8]:
-
         if not isinstance(item, dict):
             continue
-
         url = safe_source_url(item.get("url"))
-
         if url:
-            title = str(
-                item.get("title")
-                or urlsplit(url).hostname
-                or "Source"
-            )[:90]
-
-            verified.append((title, url))
-
-    if verified:
-        with st.expander(
-            f"Research sources ({len(verified)})"
-        ):
-            for title, url in verified:
+            label = str(item.get("title") or urlsplit(url).hostname or "Source")[:90]
+            valid.append((label, url))
+    if valid:
+        with st.expander(f"Research sources ({len(valid)})"):
+            for title, url in valid:
                 st.link_button(title, url)
 
 
-# ==========================================
-# INITIALIZE ALL CHAT STATE
-# ==========================================
-
-initialize()
-
-
-# ==========================================
-# STATUS WARNINGS
-# ==========================================
-
-if st.session_state.ma_cloud_error:
+# --- Visible UI ---
+init_state()
+ensure_chat_state()
+if st.session_state.get("ma_cloud_error"):
     st.warning(st.session_state.ma_cloud_error)
+if current_identity() != "guest" and cloud_client() is None:
+    st.warning("Cloud history isn't configured. Add SUPABASE_URL and SUPABASE_SECRET_KEY in Streamlit Secrets.")
 
-
-# ==========================================
-# HEADER
-# ==========================================
-
-with st.container():
-
-    brand_col, account_col = st.columns(
-        [5, 2],
-        gap="small",
-        vertical_alignment="center",
-    )
-
+with st.container(key="ma_brand_account"):
+    brand_col, account_col = st.columns([5, 2], gap="small", vertical_alignment="center")
     with brand_col:
-        st.markdown("""
-        <div class="ma-logo">
-            <div class="ma-mark">M</div>
-            <div>
-                <div class="ma-name">Merge AI</div>
-                <div class="ma-subtitle">
-                    THINK TOGETHER. ANSWER BETTER.
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(
+            '<div class="merge-brand"><div class="merge-mark">M</div>'
+            '<div><div class="merge-title">Merge AI</div>'
+            '<div class="merge-sub">THINK TOGETHER. ANSWER BETTER.</div>'
+            '</div></div>',
+            unsafe_allow_html=True,
+        )
     with account_col:
-        account_menu()
+        account_controls()
+st.markdown('<div class="merge-rule"></div>', unsafe_allow_html=True)
+
+with st.container(key="merge_toolbar"):
+    history_col, new_col, options_col = st.columns([1, 1, 1], gap="small")
+    with history_col:
+        show_history()
+    with new_col:
+        if st.button("＋ New chat", key="ma_new_chat", use_container_width=True):
+            if start_new_chat():
+                st.rerun()
+            else:
+                st.warning("Your chat list is full. Delete an old chat first.")
+    with options_col:
+        with st.popover("Settings", use_container_width=True):
+            st.toggle("Tavily web research", key="ma_web_on")
+            st.radio("Answer mode", ("Fast", "Thorough"), key="ma_answer_mode")
+            st.caption("Gemini · OpenRouter · Groq")
 
 st.markdown(
-    '<div class="ma-line"></div>',
+    '<div class="merge-section"><strong>Conversation</strong>'
+    '<span>Gemini · OpenRouter · Groq · Tavily research</span></div>',
     unsafe_allow_html=True,
 )
 
-
-# ==========================================
-# TOOLBAR
-# ==========================================
-
-with st.container(key="merge_toolbar"):
-
-    history_col, new_col, settings_col = st.columns(
-        [1, 1, 1],
-        gap="small",
-    )
-
-    with history_col:
-        history_menu()
-
-    with new_col:
-        if st.button(
-            "＋ New chat",
-            use_container_width=True,
-            key="ma_new_chat",
-        ):
-            if create_chat():
-                st.rerun()
-            else:
-                st.warning(
-                    "Maximum conversations reached. "
-                    "Delete an old chat first."
-                )
-
-    with settings_col:
-        with st.popover(
-            "Settings",
-            use_container_width=True,
-        ):
-            st.toggle(
-                "Tavily web research",
-                key="ma_web_on",
-            )
-
-            st.radio(
-                "Answer mode",
-                ("Fast", "Thorough"),
-                key="ma_mode",
-            )
-
-            st.caption(
-                "Gemini · OpenRouter · Groq"
-            )
-
-
-# ==========================================
-# CONVERSATION SCREEN
-# ==========================================
-
-st.markdown("""
-<div class="ma-section">
-    Conversation
-    <span>Gemini · OpenRouter · Groq · Tavily research</span>
-</div>
-""", unsafe_allow_html=True)
-
-
-with st.container(
-    height=420,
-    border=True,
-    key="merge_conversation",
-):
-
+# Inline composer below a scrollable history area — same placement on mobile.
+with st.container(height=420, border=True, key="merge_conversation"):
     chat = active_chat()
-
     if not chat["messages"]:
-
-        st.markdown("""
-        <div class="ma-welcome">
-            <div class="ma-welcome-icon">✦</div>
-            <h2>What's on your mind?</h2>
-            <p>
-                Ask anything. Multiple AI models work together
-                <br>
-                to produce one thoughtful answer.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
+        st.markdown(
+            '<div class="merge-welcome"><div class="merge-welcome-mark">✦</div>'
+            '<h2>What’s on your mind?</h2>'
+            '<p>Ask anything. Multiple AI models work together<br>'
+            'to produce one thoughtful answer.</p></div>',
+            unsafe_allow_html=True,
+        )
     else:
-
         for message in chat["messages"]:
-
             role = message.get("role", "assistant")
-
             if role not in ("user", "assistant"):
                 continue
-
-            avatar = (
-                "👤" if role == "user"
-                else AI_AVATAR
-            )
-
-            with st.chat_message(
-                role,
-                avatar=avatar,
-            ):
-                st.markdown(
-                    str(message.get("content", ""))
-                )
-
+            avatar = "👤" if role == "user" else ASSISTANT_AVATAR
+            with st.chat_message(role, avatar=avatar):
+                st.markdown(str(message.get("content", "")))
                 if role == "assistant":
-                    show_sources(
-                        message.get("sources")
-                    )
+                    show_sources(message.get("sources"))
 
+    # New answer appears here before the rerun updates the history.
     answer_space = st.empty()
 
+# Browser voice conversation (same AI engine and history as text chat).
+st.session_state.setdefault("ma_voice_reply", "")
+st.session_state.setdefault("ma_voice_reply_id", "")
+st.session_state.setdefault("ma_voice_failed_id", "")
+spoken_question = voice_chat(
+    reply=st.session_state.ma_voice_reply,
+    reply_id=st.session_state.ma_voice_reply_id,
+    failed_id=st.session_state.ma_voice_failed_id,
+)
 
-# ==========================================
-# MESSAGE INPUT
-# ==========================================
-
+# st.chat_input inside a container is inline instead of pinned elsewhere.
 with st.container():
-
     question = st.chat_input(
-        "Ask Merge AI anything...",
-        max_chars=MAX_INPUT,
+        "Ask Merge AI anything...", max_chars=MAX_QUESTION_CHARS,
         key="ma_question",
     )
 
+st.markdown(
+    '<div class="merge-footnote">One answer from multiple AI models · '
+    'Chats sync when signed in and cloud storage is connected</div>',
+    unsafe_allow_html=True,
+)
 
-st.markdown("""
-<div class="ma-footer">
-    One answer from multiple AI models ·
-    Google account cloud history when connected
-</div>
-""", unsafe_allow_html=True)
-
-
-# ==========================================
-# ASK MERGE AI
-# ==========================================
-
-if question and question.strip():
-
-    question = question.strip()
-
+if (question or spoken_question) and (question or spoken_question).strip():
+    voice_request = bool(spoken_question and not question)
+    question = (question or spoken_question).strip()
     now = time.monotonic()
-
     st.session_state.ma_request_times = [
-        t for t in st.session_state.ma_request_times
-        if now - t < 3600
+        t for t in st.session_state.ma_request_times if now - t < 3600
     ]
-
-    if (
-        len(st.session_state.ma_request_times)
-        >= MAX_PER_HOUR
-    ):
-        st.warning(
-            "You have reached this session's hourly "
-            "question limit. Please try later."
-        )
-
+    if len(st.session_state.ma_request_times) >= MAX_QUESTIONS_PER_HOUR:
+        st.warning("You have reached this session's hourly question limit. Try later.")
     else:
-
         st.session_state.ma_request_times.append(now)
-
         with answer_space.container():
-
-            with st.chat_message(
-                "user",
-                avatar="👤",
-            ):
+            with st.chat_message("user", avatar="👤"):
                 st.markdown(question)
-
-            with st.chat_message(
-                "assistant",
-                avatar=AI_AVATAR,
-            ):
-
-                with st.spinner(
-                    "Researching and merging an answer..."
-                ):
-
+            with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
+                with st.spinner("Researching and merging an answer..."):
                     try:
-
                         engine = active_chat()["engine"]
-
                         result = engine.ask(
                             question,
-                            fast=(
-                                st.session_state.ma_mode
-                                == "Fast"
-                            ),
+                            fast=(st.session_state.ma_answer_mode == "Fast"),
                             web_search=st.session_state.ma_web_on,
                         )
-
                         answer = str(result)
-
-                        sources = engine.last_report.get(
-                            "sources", []
-                        )
-
+                        sources = engine.last_report.get("sources", [])
                     except Exception:
-
-                        logging.exception(
-                            "Merge AI request failed"
-                        )
-
-                        st.error(
-                            "Sorry, I couldn't complete "
-                            "that answer. Please try again."
-                        )
-
+                        logging.exception("Merge AI request failed")
+                        if voice_request:
+                            st.session_state.ma_voice_failed_id = uuid.uuid4().hex
+                        st.error("Sorry, I couldn't complete that answer. Please try again.")
                     else:
-
                         st.markdown(answer)
                         show_sources(sources)
-
-                        add_message(
-                            "user",
-                            question,
-                        )
-
-                        add_message(
-                            "assistant",
-                            answer,
-                            sources,
-                        )
-
-                        # Save completed conversation.
-                        saved = save_cloud_chat(active_chat())
-
-                        if not saved and owner_id():
-                            st.warning(
-                                "Answer completed, but cloud "
-                                "history was not saved."
-                            )
-
+                        append_message("user", question)
+                        append_message("assistant", answer, sources)
+                        if voice_request:
+                            st.session_state.ma_voice_reply = answer
+                            st.session_state.ma_voice_reply_id = uuid.uuid4().hex
                         st.rerun()
