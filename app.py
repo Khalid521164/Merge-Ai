@@ -1,8 +1,6 @@
 
-"""Merge AI — ChatGPT-inspired Streamlit UI.
-Expected siblings: merge_ai.py, voice_chat.py; optional elevenlabs_tts.py,
-voice_trainer.py, cloud_history.py. Keep credentials in Streamlit Secrets.
-"""
+"""Merge AI — ChatGPT-style UI with a working history sidebar."""
+
 from __future__ import annotations
 
 import base64
@@ -10,372 +8,1177 @@ import html
 import inspect
 import json
 import os
-import re
 import uuid
+
 from datetime import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import streamlit as st
 
-st.set_page_config(page_title="Merge AI", page_icon="🟢", layout="wide", initial_sidebar_state="expanded")
 
-# -------- Credentials --------
-def secret(key: str, default: str = "") -> str:
+# =========================================================
+# 1. PAGE CONFIGURATION
+# =========================================================
+
+st.set_page_config(
+    page_title="Merge AI",
+    page_icon="🟢",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+
+# =========================================================
+# 2. API KEYS
+# =========================================================
+
+def secret(name: str, default: str = "") -> str:
     try:
-        value = st.secrets.get(key, default)
+        value = st.secrets.get(name, default)
         return str(value) if value is not None else default
     except Exception:
-        return os.environ.get(key, default)
+        return os.environ.get(name, default)
 
-for _key in (
-    "GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY", "TAVILY_API_KEY",
-    "GEMINI_MODEL", "GROQ_MODEL", "OPENROUTER_MODEL",
+
+for key in (
+    "GEMINI_API_KEY",
+    "GROQ_API_KEY",
+    "OPENROUTER_API_KEY",
+    "TAVILY_API_KEY",
+    "GEMINI_MODEL",
+    "GROQ_MODEL",
+    "OPENROUTER_MODEL",
 ):
-    if secret(_key):
-        os.environ[_key] = secret(_key)
+    value = secret(key)
+    if value:
+        os.environ[key] = value
 
-EL_KEY = secret("ELEVENLABS_API_KEY")
-EL_VOICE = secret("ELEVENLABS_VOICE_ID")
 
-# -------- Backend imports --------
+ELEVENLABS_API_KEY = secret("ELEVENLABS_API_KEY")
+ELEVENLABS_VOICE_ID = secret("ELEVENLABS_VOICE_ID")
+
+
+# =========================================================
+# 3. IMPORT MERGE AI COMPONENTS
+# =========================================================
+
 try:
     from merge_ai import MergeAI, default_providers
     BACKEND_ERROR = ""
 except Exception as exc:
-    MergeAI = default_providers = None
-    BACKEND_ERROR = f"merge_ai.py could not be loaded: {exc}"
+    MergeAI = None
+    default_providers = None
+    BACKEND_ERROR = str(exc)
+
 
 try:
     from voice_chat import voice_chat
 except Exception:
     voice_chat = None
 
+
 try:
     from elevenlabs_tts import synthesize
 except Exception:
     synthesize = None
 
+
 try:
     from voice_trainer import (
-        init_voice_trainer, trainer_panel, apply_pronunciations,
-        parse_correction, save_pronunciation,
+        init_voice_trainer,
+        trainer_panel,
+        apply_pronunciations,
+        parse_correction,
+        save_pronunciation,
     )
     HAS_TRAINER = True
 except Exception:
     HAS_TRAINER = False
 
-try:
-    from cloud_history import CloudHistory
-except Exception:
-    CloudHistory = None
 
-# -------- State --------
-def new_chat(title="New chat"):
-    return {"id": str(uuid.uuid4()), "title": title, "messages": [], "created": datetime.now().isoformat()}
+# =========================================================
+# 4. CHAT MEMORY
+# =========================================================
 
-def init():
-    defaults = {
-        "chats": [], "chat_id": None, "show_search": False,
-        "pending_voice_question": None,
-        "ma_voice_reply": "", "ma_voice_reply_id": "",
-        "ma_voice_failed_id": "", "ma_voice_audio_b64": "",
-        "ma_voice_audio_error": "", "ma_voice_provider": "elevenlabs",
-        "ma_audio_bytes": None, "ma_audio_for": "",
-        "mode": "Fast", "web_enabled": True,
+def make_chat(title="New chat"):
+    return {
+        "id": str(uuid.uuid4()),
+        "title": title,
+        "created": datetime.now().isoformat(
+            timespec="seconds"
+        ),
+        "messages": [],
     }
-    for name, value in defaults.items():
-        if name not in st.session_state:
-            st.session_state[name] = value
-    if not st.session_state.chats:
-        c = new_chat()
-        st.session_state.chats = [c]
-        st.session_state.chat_id = c["id"]
-    if st.session_state.chat_id not in [c["id"] for c in st.session_state.chats]:
-        st.session_state.chat_id = st.session_state.chats[0]["id"]
 
-init()
+
+def initialize():
+    defaults = {
+        "ma_chats": [],
+        "ma_active_chat": "",
+        "ma_search_open": False,
+        "ma_mode": "Fast",
+        "ma_web": True,
+        "ma_voice_reply": "",
+        "ma_voice_reply_id": "",
+        "ma_voice_failed_id": "",
+        "ma_voice_audio_b64": "",
+        "ma_voice_audio_error": "",
+        "ma_last_voice_event": "",
+        "ma_audio_bytes": None,
+        "ma_audio_for": "",
+    }
+
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+    if not st.session_state.ma_chats:
+        first = make_chat()
+
+        st.session_state.ma_chats = [first]
+        st.session_state.ma_active_chat = first["id"]
+
+    valid_ids = {
+        chat["id"]
+        for chat in st.session_state.ma_chats
+    }
+
+    if st.session_state.ma_active_chat not in valid_ids:
+        st.session_state.ma_active_chat = (
+            st.session_state.ma_chats[0]["id"]
+        )
+
+
+initialize()
+
 if HAS_TRAINER:
     init_voice_trainer()
 
 
-def current_chat():
-    return next(c for c in st.session_state.chats if c["id"] == st.session_state.chat_id)
+def active_chat():
+    return next(
+        chat
+        for chat in st.session_state.ma_chats
+        if chat["id"] == st.session_state.ma_active_chat
+    )
 
 
-def create_chat():
-    c = new_chat()
-    st.session_state.chats.insert(0, c)
-    st.session_state.chat_id = c["id"]
+def new_chat():
+    chat = make_chat()
+
+    st.session_state.ma_chats.insert(0, chat)
+    st.session_state.ma_active_chat = chat["id"]
+
     st.session_state.ma_audio_bytes = None
+    st.session_state.ma_audio_for = ""
 
 
-def delete_chat(cid):
-    st.session_state.chats = [c for c in st.session_state.chats if c["id"] != cid]
-    if not st.session_state.chats:
-        st.session_state.chats = [new_chat()]
-    if st.session_state.chat_id == cid:
-        st.session_state.chat_id = st.session_state.chats[0]["id"]
+def remove_chat(chat_id):
+    st.session_state.ma_chats = [
+        chat
+        for chat in st.session_state.ma_chats
+        if chat["id"] != chat_id
+    ]
 
-# -------- CSS --------
-st.markdown("""
+    if not st.session_state.ma_chats:
+        st.session_state.ma_chats = [make_chat()]
+
+    if st.session_state.ma_active_chat == chat_id:
+        st.session_state.ma_active_chat = (
+            st.session_state.ma_chats[0]["id"]
+        )
+
+    st.session_state.ma_audio_bytes = None
+    st.session_state.ma_audio_for = ""
+
+
+# =========================================================
+# 5. PROFESSIONAL UI DESIGN
+# =========================================================
+
+st.markdown(
+    """
 <style>
-#MainMenu, footer, header[data-testid="stHeader"] {visibility:hidden;}
-.block-container {max-width:870px; padding-top:1.3rem; padding-bottom:7rem;}
-[data-testid="stSidebar"] {background:#f7f8f7;border-right:1px solid #eceeed;}
-[data-testid="stSidebar"] .block-container {padding-top:1.25rem;}
-.stApp {background:#fff;color:#202522;}
-.m-brand{display:flex;align-items:center;gap:11px;margin:1px 0 17px;}
-.m-logo{width:35px;height:35px;display:grid;place-items:center;background:#126d4e;color:#fff;border-radius:12px;font-size:20px;font-weight:800;}
-.m-brandname{font-size:18px;font-weight:750;letter-spacing:-.5px;}
-.m-top{display:flex;justify-content:space-between;align-items:center;margin:0 0 22px;}
-.m-heading{font-size:21px;font-weight:650;letter-spacing:-.7px;}
-.m-sub{font-size:12px;color:#8e9891;}
-.m-welcome{display:flex;justify-content:center;align-items:center;min-height:220px;flex-direction:column;gap:12px;text-align:center;}
-.m-welcome-icon{border-radius:18px;background:#126d4e;color:white;width:55px;height:55px;display:grid;place-items:center;font-weight:bold;font-size:29px;}
-.m-welcome-label{font-size:28px;font-weight:650;letter-spacing:-1px;}
-.m-welcome-help{color:#89928c;font-size:13px;}
-.m-user{display:flex;justify-content:flex-end;margin:16px 0 10px;}
-.m-user-bubble{background:#f1f3f2;border-radius:20px;padding:11px 16px;max-width:83%;white-space:pre-wrap;overflow-wrap:anywhere;}
-.m-assistant-tag{color:#177658;font-weight:700;font-size:13px;margin:18px 0 5px;}
-.m-source{font-size:12px;margin-top:9px;color:#777;}
-.m-footer{font-size:11px;color:#969e99;text-align:center;padding-top:17px;}
-[data-testid="stChatInput"]{max-width:870px;margin:auto;}
-[data-testid="stChatInput"] textarea{border-radius:20px !important;}
-.stButton>button{border-radius:12px !important;}
-[data-testid="stSidebar"] .stButton>button{width:100%;text-align:left;justify-content:flex-start;}
-[data-testid="stSidebar"] hr{margin:12px 0;}
-@media(prefers-color-scheme:dark){
- [data-testid="stSidebar"]{background:#181b1a;border-right-color:#333;}
- .stApp{background:#161918;color:#ebeeec;}
- .m-user-bubble{background:#303633;color:#f2f3f2;}
+
+/* Keep the Streamlit sidebar button visible! */
+
+#MainMenu,
+footer {
+    visibility: hidden;
 }
-@media(max-width:720px){.block-container{padding:1rem .65rem 7rem;}.m-welcome-label{font-size:23px;}.m-user-bubble{max-width:95%;}}
+
+header[data-testid="stHeader"],
+[data-testid="stHeader"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    visibility: visible !important;
+}
+
+header[data-testid="stHeader"] {
+    background: transparent !important;
+}
+
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    z-index: 999999 !important;
+}
+
+/* Sidebar */
+
+[data-testid="stSidebar"] {
+    background: #f7f8f7;
+    border-right: 1px solid #e5e9e6;
+}
+
+[data-testid="stSidebar"] .stButton > button {
+    justify-content: flex-start;
+    text-align: left;
+    width: 100%;
+    border-radius: 10px;
+}
+
+/* Main content */
+
+.block-container {
+    max-width: 920px;
+    padding-top: 2.5rem;
+    padding-bottom: 6rem;
+}
+
+/* Logo */
+
+.m-brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    margin: 10px 0 20px;
+}
+
+.m-logo {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    background: #147353;
+    color: white;
+    display: grid;
+    place-items: center;
+    font-size: 21px;
+    font-weight: 800;
+}
+
+.m-name {
+    font-weight: 750;
+    font-size: 20px;
+}
+
+/* Header */
+
+.m-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 4px 0 28px;
+    gap: 16px;
+}
+
+.m-title {
+    font-size: 21px;
+    font-weight: 680;
+}
+
+.m-model {
+    color: #829188;
+    font-size: 12px;
+}
+
+/* Welcome screen */
+
+.m-welcome {
+    min-height: 260px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 13px;
+}
+
+.m-welcome-mark {
+    width: 55px;
+    height: 55px;
+    border-radius: 18px;
+    background: #147353;
+    color: white;
+    font-size: 28px;
+    font-weight: 800;
+    display: grid;
+    place-items: center;
+}
+
+.m-welcome-title {
+    font-size: 26px;
+    font-weight: 650;
+    letter-spacing: -0.5px;
+}
+
+.m-welcome-desc {
+    font-size: 13px;
+    color: #849187;
+}
+
+/* User messages */
+
+.m-user-line {
+    display: flex;
+    justify-content: flex-end;
+    margin: 16px 0 8px;
+}
+
+.m-user-text {
+    background: #f0f3f1;
+    border-radius: 20px;
+    padding: 11px 16px;
+    max-width: 85%;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+/* Assistant messages */
+
+.m-assistant {
+    color: #147353;
+    font-size: 13px;
+    font-weight: 700;
+    margin: 24px 0 10px;
+}
+
+.m-footnote {
+    font-size: 11px;
+    color: #8c9790;
+    text-align: center;
+    margin-top: 20px;
+}
+
+/* Chat input */
+
+[data-testid="stChatInput"] {
+    max-width: 920px;
+    margin: auto;
+}
+
+[data-testid="stChatInput"] textarea {
+    border-radius: 20px !important;
+}
+
+/* Mobile */
+
+@media (max-width: 720px) {
+
+    .block-container {
+        padding-top: 2rem;
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
+    }
+
+    .m-welcome-title {
+        font-size: 22px;
+    }
+
+    .m-user-text {
+        max-width: 95%;
+    }
+}
+
+/* Dark mode */
+
+@media (prefers-color-scheme: dark) {
+
+    [data-testid="stSidebar"] {
+        background: #1b201e;
+        border-right-color: #353b37;
+    }
+
+    .m-user-text {
+        background: #303733;
+        color: #f4f6f4;
+    }
+}
+
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
-# -------- Optional Google sign in --------
-def get_user():
-    try:
-        if st.user.is_logged_in:
-            return dict(st.user)
-    except Exception:
-        pass
-    return None
 
-# -------- Sidebar --------
+# =========================================================
+# 6. HISTORY SIDEBAR
+# =========================================================
+
 with st.sidebar:
-    st.markdown('<div class="m-brand"><div class="m-logo">M</div><div class="m-brandname">Merge AI</div></div>', unsafe_allow_html=True)
-    if st.button("✏️  New chat", use_container_width=True):
-        create_chat()
+
+    st.markdown(
+        '<div class="m-brand">'
+        '<div class="m-logo">M</div>'
+        '<div class="m-name">Merge AI</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # New chat
+
+    if st.button(
+        "✏️  New chat",
+        key="ma_new",
+        use_container_width=True,
+    ):
+        new_chat()
         st.rerun()
-    if st.button("🔎  Search chats", use_container_width=True):
-        st.session_state.show_search = not st.session_state.show_search
-    keyword = st.text_input("Search", placeholder="Search your conversations", label_visibility="collapsed") if st.session_state.show_search else ""
+
+    # Search chats
+
+    if st.button(
+        "🔎  Search chats",
+        key="ma_search_toggle",
+        use_container_width=True,
+    ):
+        st.session_state.ma_search_open = (
+            not st.session_state.ma_search_open
+        )
+        st.rerun()
+
+    search = ""
+
+    if st.session_state.ma_search_open:
+        search = st.text_input(
+            "Search chats",
+            placeholder="Search your conversations…",
+        )
+
     st.divider()
-    st.caption("YOUR CHATS")
-    for c in st.session_state.chats:
-        if keyword and keyword.casefold() not in (c["title"] + " " + " ".join(m["content"] for m in c["messages"])).casefold():
+
+    st.caption("CHAT HISTORY")
+
+    displayed = 0
+
+    for chat in st.session_state.ma_chats:
+
+        searchable = chat["title"] + " " + " ".join(
+            str(message.get("content", ""))
+            for message in chat["messages"]
+        )
+
+        if (
+            search
+            and search.casefold() not in searchable.casefold()
+        ):
             continue
-        label = ("🟢  " if c["id"] == st.session_state.chat_id else "💬  ") + c["title"][:30]
-        if st.button(label, key=f"chat_{c['id']}", use_container_width=True):
-            st.session_state.chat_id = c["id"]
+
+        displayed += 1
+
+        selected = (
+            chat["id"] == st.session_state.ma_active_chat
+        )
+
+        label = (
+            "🟢  " if selected else "💬  "
+        ) + chat["title"][:31]
+
+        if st.button(
+            label,
+            key="ma_open_" + chat["id"],
+            use_container_width=True,
+        ):
+            st.session_state.ma_active_chat = chat["id"]
+            st.session_state.ma_audio_bytes = None
             st.rerun()
-    with st.expander("Manage current chat"):
-        new_title = st.text_input("Rename chat", value=current_chat()["title"], key=f"rename_{st.session_state.chat_id}")
-        if st.button("Save title"):
-            current_chat()["title"] = new_title.strip() or "New chat"
+
+    if not displayed:
+        st.caption(
+            "No conversations match your search."
+        )
+
+    # Chat management
+
+    with st.expander("⚙️ Manage current chat"):
+
+        name = st.text_input(
+            "Chat title",
+            value=active_chat()["title"],
+            key=(
+                "ma_title_"
+                + st.session_state.ma_active_chat
+            ),
+        )
+
+        if st.button(
+            "Save title",
+            key="ma_save_title",
+        ):
+            active_chat()["title"] = (
+                name.strip() or "New chat"
+            )
             st.rerun()
-        if st.button("Delete this chat"):
-            delete_chat(st.session_state.chat_id)
+
+        if st.button(
+            "🗑️ Delete this chat",
+            key="ma_delete_chat",
+        ):
+            remove_chat(
+                st.session_state.ma_active_chat
+            )
             st.rerun()
-        st.download_button("Export all chats", data=json.dumps(st.session_state.chats, ensure_ascii=False, indent=2), file_name="merge_ai_chats.json", mime="application/json")
+
+        st.download_button(
+            "⬇️ Export chat history",
+            data=json.dumps(
+                st.session_state.ma_chats,
+                indent=2,
+                ensure_ascii=False,
+            ),
+            file_name="merge_ai_chats.json",
+            mime="application/json",
+            key="ma_export",
+        )
+
     st.divider()
-    st.session_state.mode = st.selectbox("Response speed", ["Fast", "Deep"], index=0 if st.session_state.mode == "Fast" else 1)
-    st.session_state.web_enabled = st.toggle("🌐 Web search", value=st.session_state.web_enabled)
+
+    # AI settings
+
+    st.session_state.ma_mode = st.selectbox(
+        "Answer mode",
+        ["Fast", "Deep"],
+        index=(
+            0
+            if st.session_state.ma_mode == "Fast"
+            else 1
+        ),
+        key="ma_mode_select",
+    )
+
+    st.session_state.ma_web = st.toggle(
+        "🌐 Web search",
+        value=st.session_state.ma_web,
+        key="ma_web_toggle",
+    )
+
+    # Optional voice trainer
+
     if HAS_TRAINER:
         trainer_panel()
-    person = get_user()
-    if person:
-        st.caption("Signed in: " + (person.get("email") or person.get("name") or "Account"))
-        if st.button("Sign out"):
-            st.logout()
-    else:
-        st.caption("Chat history is saved for this browser session.")
-        if st.button("Sign in with Google", help="Requires Streamlit OAuth configuration"):
-            try:
-                st.login("google")
-            except Exception as exc:
-                st.warning(f"Google login not configured: {exc}")
 
-# -------- AI --------
+    st.caption(
+        "History is saved for this Streamlit session. "
+        "Export it to keep a backup."
+    )
+
+
+# =========================================================
+# 7. MERGE AI BACKEND
+# =========================================================
+
 @st.cache_resource(show_spinner=False)
 def get_engine():
-    if MergeAI is None:
-        raise RuntimeError(BACKEND_ERROR)
-    providers = default_providers()
-    return MergeAI(providers=providers, tavily_api_key=secret("TAVILY_API_KEY"))
+
+    if MergeAI is None or default_providers is None:
+        raise RuntimeError(
+            "Could not import merge_ai.py: "
+            + BACKEND_ERROR
+        )
+
+    return MergeAI(
+        providers=default_providers(),
+        tavily_api_key=secret("TAVILY_API_KEY"),
+    )
 
 
-def unpack_answer(result: Any) -> tuple[str, list]:
+def extract_answer(result: Any):
+
     if isinstance(result, str):
         return result, []
+
     if isinstance(result, dict):
-        answer = next((result.get(k) for k in ("answer", "final_answer", "final", "response", "text") if result.get(k)), None)
+
+        text = next(
+            (
+                result.get(key)
+                for key in (
+                    "answer",
+                    "final_answer",
+                    "final",
+                    "response",
+                    "text",
+                )
+                if result.get(key)
+            ),
+            None,
+        )
+
         sources = result.get("sources") or []
+
     else:
-        answer = next((getattr(result, k, None) for k in ("answer", "final_answer", "final", "response", "text") if getattr(result, k, None)), None)
-        sources = getattr(result, "sources", []) or []
-    return str(answer or result), sources if isinstance(sources, list) else []
+
+        text = next(
+            (
+                getattr(result, key, None)
+                for key in (
+                    "answer",
+                    "final_answer",
+                    "final",
+                    "response",
+                    "text",
+                )
+                if getattr(result, key, None)
+            ),
+            None,
+        )
+
+        sources = (
+            getattr(result, "sources", []) or []
+        )
+
+    if text is None:
+        text = result
+
+    if not isinstance(sources, list):
+        sources = []
+
+    return str(text), sources
 
 
-def get_answer(question):
-    eng = get_engine()
+def generate_answer(question):
+
+    engine = get_engine()
+
     try:
-        result = eng.ask(question, fast=(st.session_state.mode == "Fast"), web_search=st.session_state.web_enabled)
+
+        result = engine.ask(
+            question,
+            fast=(
+                st.session_state.ma_mode == "Fast"
+            ),
+            web_search=st.session_state.ma_web,
+        )
+
     except TypeError as exc:
-        # Only support an older backend lacking web_search; do not mask other failures.
+
+        # Support older versions of merge_ai.py
+        # that do not accept web_search.
+
         if "web_search" not in str(exc):
             raise
-        result = eng.ask(question, fast=(st.session_state.mode == "Fast"))
-    return unpack_answer(result)
+
+        result = engine.ask(
+            question,
+            fast=(
+                st.session_state.ma_mode == "Fast"
+            ),
+        )
+
+    return extract_answer(result)
 
 
-def correction_command(text):
-    if not HAS_TRAINER:
-        return None
-    return parse_correction(text)
+# =========================================================
+# 8. ELEVENLABS TEXT TO SPEECH
+# =========================================================
 
-# -------- ElevenLabs --------
-def mp3_for(text: str) -> bytes | None:
+def voice_audio(answer):
+
     st.session_state.ma_voice_audio_error = ""
-    if not (EL_KEY and EL_VOICE and synthesize):
-        st.session_state.ma_voice_audio_error = "ElevenLabs isn't configured. Add ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID, and elevenlabs_tts.py."
+
+    if not (
+        ELEVENLABS_API_KEY
+        and ELEVENLABS_VOICE_ID
+        and synthesize
+    ):
+        st.session_state.ma_voice_audio_error = (
+            "ElevenLabs needs ELEVENLABS_API_KEY, "
+            "ELEVENLABS_VOICE_ID and elevenlabs_tts.py."
+        )
         return None
+
     try:
-        speak_text = apply_pronunciations(text) if HAS_TRAINER else text
-        settings = st.session_state.get("vt_settings", {})
-        # Compatible with the old synthesize(text, api_key, voice_id) signature.
-        params = inspect.signature(synthesize).parameters
-        kwargs = {}
-        if "speed" in params:
-            kwargs["speed"] = float(settings.get("speed", 0.95))
-        if "stability" in params:
-            kwargs["stability"] = float(settings.get("stability", 0.55))
-        audio = synthesize(speak_text, EL_KEY, EL_VOICE, **kwargs)
-        if not isinstance(audio, bytes) or not audio:
-            raise RuntimeError("No MP3 audio returned")
-        return audio
+
+        spoken = (
+            apply_pronunciations(answer)
+            if HAS_TRAINER
+            else answer
+        )
+
+        parameters = inspect.signature(
+            synthesize
+        ).parameters
+
+        options = {}
+
+        settings = st.session_state.get(
+            "vt_settings", {}
+        )
+
+        if "speed" in parameters:
+            options["speed"] = float(
+                settings.get("speed", 0.95)
+            )
+
+        if "stability" in parameters:
+            options["stability"] = float(
+                settings.get("stability", 0.55)
+            )
+
+        mp3 = synthesize(
+            spoken,
+            ELEVENLABS_API_KEY,
+            ELEVENLABS_VOICE_ID,
+            **options,
+        )
+
+        if not isinstance(mp3, bytes) or not mp3:
+            raise RuntimeError(
+                "ElevenLabs did not return MP3 data."
+            )
+
+        return mp3
+
     except Exception as exc:
-        st.session_state.ma_voice_audio_error = str(exc)
+
+        st.session_state.ma_voice_audio_error = str(
+            exc
+        )
+
         return None
 
 
-def display_sources(sources):
-    urls = []
-    for item in sources[:6]:
-        value = item if isinstance(item, str) else (item.get("url") or item.get("link") or "" if isinstance(item, dict) else "")
-        if isinstance(value, str) and value.startswith(("https://", "http://")) and value not in urls:
-            urls.append(value)
-    if urls:
-        with st.expander(f"Sources ({len(urls)})"):
-            for url in urls:
-                st.markdown(f"- {url}")
+# =========================================================
+# 9. SOURCES
+# =========================================================
 
-# -------- Main --------
-st.markdown('<div class="m-top"><div class="m-heading">Merge AI <span style="color:#939a96;font-size:15px">⌄</span></div><div class="m-sub">Gemini + Groq + OpenRouter</div></div>', unsafe_allow_html=True)
-chat = current_chat()
-if not chat["messages"]:
-    st.markdown('<div class="m-welcome"><div class="m-welcome-icon">M</div><div class="m-welcome-label">What can I help with?</div><div class="m-welcome-help">Ask a question, search the web, or talk with Merge AI.</div></div>', unsafe_allow_html=True)
+def safe_url(raw):
 
-for index, msg in enumerate(chat["messages"]):
-    if msg["role"] == "user":
-        st.markdown('<div class="m-user"><div class="m-user-bubble">' + html.escape(msg["content"]) + '</div></div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="m-assistant-tag">✦ Merge AI</div>', unsafe_allow_html=True)
-        st.markdown(msg["content"])
-        display_sources(msg.get("sources", []))
-        tools = st.columns([1, 1, 7])
-        with tools[0]:
-            if st.button("🔊", key=f"speak_{chat['id']}_{index}", help="Speak this answer"):
-                st.session_state.ma_audio_bytes = mp3_for(msg["content"])
-                st.session_state.ma_audio_for = f"{chat['id']}_{index}"
-        with tools[1]:
-            if st.button("📋", key=f"copy_{chat['id']}_{index}", help="Show copyable text"):
-                st.code(msg["content"], language=None)
-        if st.session_state.ma_audio_for == f"{chat['id']}_{index}" and st.session_state.ma_audio_bytes:
-            st.audio(st.session_state.ma_audio_bytes, format="audio/mp3")
-        if st.session_state.ma_audio_for == f"{chat['id']}_{index}" and st.session_state.ma_voice_audio_error:
-            st.caption(st.session_state.ma_voice_audio_error)
-
-# Always render the voice component (Streamlit component state needs a stable position).
-# Existing voice_chat.py is expected to display the glowing-orb voice control.
-st.caption("🎙️ LIVE VOICE — tap the microphone/orb control below to start a conversation")
-voice_event = None
-if voice_chat:
     try:
+        parsed = urlparse(raw)
+
+        if (
+            parsed.scheme in ("http", "https")
+            and parsed.netloc
+        ):
+            return raw
+
+    except Exception:
+        pass
+
+    return None
+
+
+def show_sources(sources):
+
+    entries = []
+
+    for item in sources[:10]:
+
+        if isinstance(item, str):
+            url = item
+
+        elif isinstance(item, dict):
+
+            url = (
+                item.get("url")
+                or item.get("link")
+                or ""
+            )
+
+            if isinstance(url, dict):
+                url = url.get("uri", "")
+
+        else:
+            url = getattr(item, "url", "")
+
+        if isinstance(url, str):
+
+            clean = safe_url(url)
+
+            if clean and clean not in entries:
+                entries.append(clean)
+
+    if entries:
+
+        with st.expander(
+            "Sources (" + str(len(entries)) + ")"
+        ):
+
+            for url in entries:
+                st.markdown("- " + url)
+
+
+# =========================================================
+# 10. MAIN CHAT INTERFACE
+# =========================================================
+
+st.markdown(
+    '<div class="m-top">'
+    '<div class="m-title">Merge AI ⌄</div>'
+    '<div class="m-model">'
+    'Gemini + Groq + OpenRouter'
+    '</div>'
+    '</div>',
+    unsafe_allow_html=True,
+)
+
+
+chat = active_chat()
+
+
+# Welcome screen
+
+if not chat["messages"]:
+
+    st.markdown(
+        '<div class="m-welcome">'
+        '<div class="m-welcome-mark">M</div>'
+        '<div class="m-welcome-title">'
+        'What can I help with?'
+        '</div>'
+        '<div class="m-welcome-desc">'
+        'Ask a question or start a voice conversation.'
+        '</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# Display messages
+
+for i, message in enumerate(chat["messages"]):
+
+    if message["role"] == "user":
+
+        st.markdown(
+            '<div class="m-user-line">'
+            '<div class="m-user-text">'
+            + html.escape(message["content"])
+            + '</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    else:
+
+        st.markdown(
+            '<div class="m-assistant">'
+            '✦ Merge AI'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(message["content"])
+
+        show_sources(
+            message.get("sources", [])
+        )
+
+        # Answer controls
+
+        col1, col2, _ = st.columns(
+            [1, 1, 9]
+        )
+
+        audio_key = (
+            chat["id"] + ":" + str(i)
+        )
+
+        with col1:
+
+            if st.button(
+                "🔊",
+                key="ma_speak_" + audio_key,
+                help="Read aloud",
+            ):
+
+                st.session_state.ma_audio_bytes = (
+                    voice_audio(
+                        message["content"]
+                    )
+                )
+
+                st.session_state.ma_audio_for = (
+                    audio_key
+                )
+
+        with col2:
+
+            if st.button(
+                "📋",
+                key="ma_copy_" + audio_key,
+                help="Show copyable text",
+            ):
+
+                st.code(
+                    message["content"],
+                    language=None,
+                )
+
+        # Audio player
+
+        if (
+            st.session_state.ma_audio_for
+            == audio_key
+        ):
+
+            if st.session_state.ma_audio_bytes:
+
+                st.audio(
+                    st.session_state.ma_audio_bytes,
+                    format="audio/mpeg",
+                )
+
+            elif (
+                st.session_state.ma_voice_audio_error
+            ):
+
+                st.warning(
+                    st.session_state.ma_voice_audio_error
+                )
+
+
+# =========================================================
+# 11. LIVE VOICE FEATURE
+# =========================================================
+
+st.markdown("**🎙️ Live Voice**")
+
+voice_event = None
+
+
+if voice_chat is not None:
+
+    try:
+
         voice_event = voice_chat(
             reply=st.session_state.ma_voice_reply,
             reply_id=st.session_state.ma_voice_reply_id,
             failed_id=st.session_state.ma_voice_failed_id,
             audio_b64=st.session_state.ma_voice_audio_b64,
-            elevenlabs_available=bool(EL_KEY and EL_VOICE and synthesize),
+            elevenlabs_available=bool(
+                ELEVENLABS_API_KEY
+                and ELEVENLABS_VOICE_ID
+                and synthesize
+            ),
         )
+
     except Exception as exc:
-        st.caption(f"Live voice couldn't start: {exc}")
+
+        st.warning(
+            "Could not display Live Voice: "
+            + str(exc)
+        )
+
 else:
-    st.info("🎙️ To enable the glowing Live Voice popup, keep your existing voice_chat.py in this folder.")
 
-spoken_question = None
-is_voice = False
-provider = "browser"
+    st.caption(
+        "Add your existing voice_chat.py "
+        "to enable the Live Voice orb."
+    )
+
+
+# =========================================================
+# 12. VOICE QUESTION PROCESSING
+# =========================================================
+
+spoken = ""
+voice_provider = "browser"
+
+
 if isinstance(voice_event, dict):
-    spoken_question = (voice_event.get("text") or "").strip()
-    provider = voice_event.get("voice_provider") or "browser"
-    is_voice = bool(spoken_question)
 
-question = st.chat_input("Ask Merge AI anything…")
-if not question and is_voice:
-    # Avoid duplicate event reprocessing on later Streamlit reruns.
-    fingerprint = str(voice_event.get("request_id") or voice_event.get("id") or spoken_question)
-    if st.session_state.get("last_voice_fingerprint") != fingerprint:
-        st.session_state.last_voice_fingerprint = fingerprint
-        question = spoken_question
-if question:
+    spoken = str(
+        voice_event.get("text") or ""
+    ).strip()
+
+    voice_provider = str(
+        voice_event.get("voice_provider")
+        or "browser"
+    )
+
+
+# =========================================================
+# 13. MESSAGE INPUT
+# =========================================================
+
+question = st.chat_input(
+    "Ask Merge AI anything…"
+)
+
+is_voice = False
+
+
+# Check for a new voice question
+
+if not question and spoken:
+
+    event_id = str(
+        voice_event.get("request_id")
+        or voice_event.get("id")
+        or spoken
+    )
+
+    if (
+        event_id
+        != st.session_state.ma_last_voice_event
+    ):
+
+        st.session_state.ma_last_voice_event = (
+            event_id
+        )
+
+        question = spoken
+        is_voice = True
+
+
+# =========================================================
+# 14. GENERATE AN ANSWER
+# =========================================================
+
+if question and question.strip():
+
     question = question.strip()
-    if question:
-        command = correction_command(question)
-        if command:
-            a, b = command
-            if save_pronunciation(a, b):
-                st.toast(f"Saved pronunciation: {a} → {b}")
+
+    # Pronunciation teaching commands
+
+    if HAS_TRAINER:
+
+        correction = parse_correction(
+            question
+        )
+
+        if correction:
+
+            if save_pronunciation(
+                *correction
+            ):
+
+                st.success(
+                    "Saved pronunciation: "
+                    + correction[0]
+                    + " → "
+                    + correction[1]
+                )
+
             else:
-                st.warning("Could not save the pronunciation correction.")
+
+                st.warning(
+                    "Could not save the "
+                    "pronunciation correction."
+                )
+
             st.stop()
 
-        chat = current_chat()
-        chat["messages"].append({"role": "user", "content": question})
-        if chat["title"] == "New chat":
-            chat["title"] = (question[:43] + "…") if len(question) > 43 else question
-        with st.spinner("Searching, consulting models and merging answers…"):
-            try:
-                response, sources = get_answer(question)
-            except Exception as exc:
-                response = f"I couldn't get a response from the AI providers. Details: {exc}"
-                sources = []
-        chat["messages"].append({"role": "assistant", "content": response, "sources": sources})
+    # Save user message
 
-        if is_voice:
-            st.session_state.ma_voice_reply = response
-            st.session_state.ma_voice_reply_id = str(uuid.uuid4())
-            st.session_state.ma_voice_audio_b64 = ""
-            st.session_state.ma_voice_failed_id = ""
-            st.session_state.ma_voice_provider = provider
-            if provider == "elevenlabs":
-                audio = mp3_for(response)
-                if audio:
-                    st.session_state.ma_voice_audio_b64 = base64.b64encode(audio).decode("ascii")
-                else:
-                    st.session_state.ma_voice_failed_id = st.session_state.ma_voice_reply_id
-        st.rerun()
+    chat = active_chat()
 
-st.markdown('<div class="m-footer">Merge AI can make mistakes. Check important information.</div>', unsafe_allow_html=True)
+    chat["messages"].append(
+        {
+            "role": "user",
+            "content": question,
+        }
+    )
+
+    # Rename new chat automatically
+
+    if chat["title"] == "New chat":
+
+        chat["title"] = (
+            question[:40]
+            + ("…" if len(question) > 40 else "")
+        )
+
+    # Move active chat to top of history
+
+    st.session_state.ma_chats.remove(
+        chat
+    )
+
+    st.session_state.ma_chats.insert(
+        0, chat
+    )
+
+    # Generate AI response
+
+    with st.spinner(
+        "Consulting models and preparing your answer…"
+    ):
+
+        try:
+
+            answer, sources = (
+                generate_answer(question)
+            )
+
+        except Exception as exc:
+
+            answer = (
+                "I couldn't generate an answer. "
+                "Check your API keys and logs. "
+                "Details: "
+                + str(exc)
+            )
+
+            sources = []
+
+    # Save AI response
+
+    chat["messages"].append(
+        {
+            "role": "assistant",
+            "content": answer,
+            "sources": sources,
+        }
+    )
+
+    # Voice reply
+
+    if is_voice:
+
+        st.session_state.ma_voice_reply = (
+            answer
+        )
+
+        st.session_state.ma_voice_reply_id = (
+            str(uuid.uuid4())
+        )
+
+        st.session_state.ma_voice_failed_id = ""
+        st.session_state.ma_voice_audio_b64 = ""
+
+        if voice_provider == "elevenlabs":
+
+            sound = voice_audio(answer)
+
+            if sound:
+
+                st.session_state.ma_voice_audio_b64 = (
+                    base64.b64encode(
+                        sound
+                    ).decode("ascii")
+                )
+
+            else:
+
+                st.session_state.ma_voice_failed_id = (
+                    st.session_state.ma_voice_reply_id
+                )
+
+    st.rerun()
+
+
+# =========================================================
+# 15. FOOTER
+# =========================================================
+
+st.markdown(
+    '<div class="m-footnote">'
+    'Merge AI can make mistakes. '
+    'Verify important information.'
+    '</div>',
+    unsafe_allow_html=True,
+)
