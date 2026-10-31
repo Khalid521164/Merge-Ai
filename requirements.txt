@@ -3,14 +3,11 @@
 # MERGE AI - STABLE REQUIREMENTS
 # ==========================================
 
-# Streamlit website and interface
+
 streamlit>=1.52.0,<2.0
-
-# Gemini, Groq, OpenRouter, Tavily APIs
 requests>=2.31.0,<3.0
-
-# Google login and authentication
 Authlib>=1.3.2,<2.0
+
 
 # ==========================================
 # END OF REQUIREMENTS
