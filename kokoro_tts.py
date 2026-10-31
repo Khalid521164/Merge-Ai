@@ -1,56 +1,140 @@
-"""Optional local Kokoro synthesis. No API key or ElevenLabs required.
 
-Kokoro model weights download on first use and can require significant RAM.
-If dependencies are unavailable, caller falls back to browser TTS.
-"""
-from __future__ import annotations
+"""Kokoro natural voice for Merge AI."""
+
 import io
+import logging
+import os
 import re
 import threading
 import wave
+
 import numpy as np
 
-_PIPELINE = None
+_LOG = logging.getLogger(__name__)
 _LOCK = threading.Lock()
-_ALLOWED = {'am_liam', 'am_michael', 'am_eric', 'am_adam', 'am_puck', 'am_echo'}
+_PIPELINE = None
+
+VOICES = {
+    "am_liam",
+    "am_michael",
+    "am_eric",
+    "am_adam",
+    "am_puck",
+    "am_echo",
+    "am_fenrir",
+    "am_onyx",
+}
 
 
-def prepare_text(text: str) -> str:
-    text = re.sub(r'```[\s\S]*?```', ' code example omitted. ', str(text))
-    text = re.sub(r'https?://\S+', ' a source link ', text)
-    text = re.sub(r'[`*_#>\[\]|]', ' ', text)
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text[:1100]
+def clean_for_speech(text):
+    text = str(text)
+
+    text = re.sub(
+        r"```[\s\S]*?```",
+        " Code omitted. ",
+        text
+    )
+
+    text = re.sub(
+        r"https?://\S+",
+        "a source link",
+        text
+    )
+
+    text = re.sub(
+        r"[`*_#>\[\]|]",
+        " ",
+        text
+    )
+
+    text = re.sub(r"\s+", " ", text).strip()
+
+    return text[:900]
 
 
-def synthesize(text: str, *, voice='am_liam', speed=1.03) -> bytes:
-    """Return 24 kHz mono WAV for Streamlit playback & Live Voice component."""
-    if voice not in _ALLOWED:
-        voice = 'am_liam'
-    speed = max(0.8, min(float(speed), 1.3))
-    text = prepare_text(text)
-    if not text:
-        raise ValueError('Nothing to speak')
-    with _LOCK:
-        # generator may load voices lazily; don't share pipeline concurrently
-        chunks = [np.asarray(audio, dtype=np.float32) for _, _, audio in
-                  _pipeline_no_lock(text, voice, speed)]
-    if not chunks:
-        raise RuntimeError('No speech generated')
-    pcm = (np.clip(np.concatenate(chunks), -1, 1) * 32767).astype('<i2')
-    out = io.BytesIO()
-    with wave.open(out, 'wb') as wav:
-        wav.setnchannels(1)
-        wav.setsampwidth(2)
-        wav.setframerate(24000)
-        wav.writeframes(pcm.tobytes())
-    return out.getvalue()
-
-
-def _pipeline_no_lock(text, voice, speed):
-    # initialize under same lock without double-locking
+def get_pipeline():
     global _PIPELINE
+
     if _PIPELINE is None:
+        import torch
         from kokoro import KPipeline
-        _PIPELINE = KPipeline(lang_code='a', device='cpu')
-    return _PIPELINE(text, voice=voice, speed=speed, split_pattern=r'\n+')
+
+        torch.set_num_threads(
+            min(2, max(1, os.cpu_count() or 1))
+        )
+
+        _LOG.info(
+            "Starting Kokoro CPU pipeline"
+        )
+
+        _PIPELINE = KPipeline(
+            lang_code="a",
+            device="cpu"
+        )
+
+        _LOG.info(
+            "Kokoro pipeline initialized"
+        )
+
+    return _PIPELINE
+
+
+def synthesize(
+    text,
+    *,
+    voice="am_liam",
+    speed=1.03
+):
+    text = clean_for_speech(text)
+
+    if not text:
+        raise ValueError("No text to speak")
+
+    if voice not in VOICES:
+        voice = "am_liam"
+
+    speed = max(
+        0.8,
+        min(float(speed), 1.3)
+    )
+
+    try:
+        with _LOCK:
+            pipeline = get_pipeline()
+
+            chunks = [
+                np.asarray(audio, dtype=np.float32)
+                for _, _, audio in pipeline(
+                    text,
+                    voice=voice,
+                    speed=speed
+                )
+                if audio is not None
+            ]
+
+        if not chunks:
+            raise RuntimeError(
+                "Kokoro returned no audio"
+            )
+
+        audio = np.concatenate(chunks)
+
+        pcm = (
+            np.clip(audio, -1, 1) * 32767
+        ).astype("<i2")
+
+        output = io.BytesIO()
+
+        with wave.open(output, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(24000)
+            wav.writeframes(pcm.tobytes())
+
+        return output.getvalue()
+
+    except Exception:
+        _LOG.exception(
+            "Kokoro speech generation failed"
+        )
+        raise
