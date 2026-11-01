@@ -663,17 +663,35 @@ def build_merge_prompt(
     return "\n".join(pieces)
 
 
+def latest_user_question(question: str) -> str:
+    """Extract the actual user request from app.py's context envelope."""
+    marker = "\nCurrent question:\n"
+    if marker in question:
+        return question.rsplit(marker, 1)[-1].strip()
+    return question.strip()
+
+
+def user_requested_comparison(question: str) -> bool:
+    """Only explicit user requests may receive comparisons."""
+    current = latest_user_question(question).casefold()
+    return bool(re.search(
+        r"\b(?:compare|comparison|difference between|versus|vs\.?|side.by.side)\b",
+        current,
+    ))
+
+
 def is_draft_comparison(text: str) -> bool:
-    """Recognize an accidental internal-review response, not normal answers."""
+    """Detect internal review/synthesis output accidentally shown to users."""
     if not text:
         return False
     t = text.casefold()
     return bool(
-        re.search(r"\b(?:both|these|the) drafts?\b", t)
-        or re.search(r"\b(?:groq|gemini|openrouter) draft\b", t)
-        or ("tone/style" in t and ("draft" in t or "groq" in t))
-        or ("draft" in t and "comparison" in t)
-        or re.search(r"\b(?:draft 1|draft 2)\b", t)
+        re.search(r"\b(?:both|these|the|two) drafts?\b", t)
+        or re.search(r"\b(?:groq|gemini|openrouter)[\s-]*(?:style[\s-]*)?draft\b", t)
+        or ("draft" in t and ("groq" in t or "gemini" in t or "openrouter" in t))
+        or ("side-by-side" in t and ("groq" in t or "gemini" in t))
+        or ("tone/style" in t and "draft" in t)
+        or re.search(r"\bdraft [12]\b", t)
     )
 
 
@@ -872,10 +890,13 @@ class MergeAI:
         max_tokens: int,
     ) -> str:
 
+        comparison_allowed = user_requested_comparison(question)
+
         if len(drafts) == 1:
-            return next(
-                iter(drafts.values())
-            )
+            answer = next(iter(drafts.values()))
+            if comparison_allowed or not is_draft_comparison(answer):
+                return answer
+            return self.direct_answer(question, research, max_tokens)
 
         merge_prompt = build_merge_prompt(
             question,
@@ -921,8 +942,8 @@ class MergeAI:
                     max_tokens,
                 )
 
-                if is_draft_comparison(answer):
-                    logging.warning("%s returned a draft comparison; using a direct answer instead.", name)
+                if not comparison_allowed and is_draft_comparison(answer):
+                    logging.warning("%s returned an internal draft comparison.", name)
                     continue
                 self.last_report["merged"] = True
                 return answer
@@ -941,11 +962,45 @@ class MergeAI:
             "gemini",
             "openrouter",
         ):
-            if name in drafts and not is_draft_comparison(drafts[name]):
+            if name in drafts and (comparison_allowed or not is_draft_comparison(drafts[name])):
                 return drafts[name]
 
-        # Last resort: return the raw answer instead of concealing a failure.
-        return next(iter(drafts.values()))
+        # No internal comparison tables should ever be returned as the answer.
+        return self.direct_answer(question, research, max_tokens)
+
+    def direct_answer(
+        self,
+        question: str,
+        research: str,
+        max_tokens: int,
+    ) -> str:
+        """Recover a direct answer without passing internal model drafts."""
+        current = latest_user_question(question)
+        clean = (
+            "Reply directly to the following user message as Merge AI. "
+            "Do not mention Groq, Gemini, model drafts, comparisons, "
+            "tables of draft greetings, or the internal answer process "
+            "unless the user specifically requests them.\n\n"
+            "User message:\n" + current
+        )
+        if research:
+            clean += "\n\nResearch evidence:\n" + research[:4500]
+        messages = [{"role": "user", "content": clean}]
+        for provider in self.providers:
+            if not provider.enabled or not provider.api_key:
+                continue
+            try:
+                answer = call_provider(provider, messages, max_tokens).strip()
+                if answer and not is_draft_comparison(answer):
+                    return answer
+            except Exception:
+                logging.warning("Direct-answer recovery failed for %s.", provider.name)
+
+        # Avoid displaying an internal comparison as the final response.
+        return (
+            "I couldn't generate a clear final answer this time. "
+            "Please try your question again."
+        )
 
     # --------------------------------------
     # Main public method
