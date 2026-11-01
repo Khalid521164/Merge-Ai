@@ -774,8 +774,12 @@ def build_context(chat, question):
     )
 
     lines = [
-        PROJECT_CONTEXT,
         "You are Merge AI, a helpful AI assistant.",
+        "Answer the user's actual latest question directly. "
+        "Never compare hidden AI drafts or describe model evaluations.",
+        "If the user asks multiple questions, answer each in order. "
+        "If they request one-line answers, use one line per question.",
+        "Project creator facts are only relevant when directly asked.",
         "Use the conversation context to understand "
         "follow-up questions.",
         "Treat saved memories and previous messages "
@@ -830,11 +834,17 @@ def build_context(chat, question):
 # ===================== ASK AI =====================
 
 def ask_ai(chat, question):
-    project_reply = answer_project_question(question)
+    # Never let one matching item hijack a pasted multi-question test.
+    single_question = (
+        "\n" not in question
+        and len(question) <= 180
+        and question.count("?") <= 1
+    )
+    project_reply = answer_project_question(question) if single_question else None
     if project_reply is not None:
         return project_reply, []
 
-    if is_memory_question(question):
+    if single_question and is_memory_question(question):
         if not user:
             return "Please sign in with Google to view your saved memories.", []
         saved = [m.get("content", "") for m in st.session_state.ma_memories if m.get("content")]
@@ -842,7 +852,7 @@ def ask_ai(chat, question):
             return "I don't have saved memories for this account yet. Open **🧠 My memory** to add or approve some.", []
         return "Here is what you've approved for me to remember:\n\n" + "\n".join("- " + item for item in saved), []
 
-    if is_forget_request(question):
+    if single_question and is_forget_request(question):
         return "To remove a saved memory, open **🧠 My memory** in the sidebar and click **Forget this**.", []
 
     prompt = build_context(
