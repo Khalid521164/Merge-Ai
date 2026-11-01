@@ -24,23 +24,44 @@ PROJECT_CONTEXT = (
 )
 
 def answer_project_question(question: str) -> str | None:
-    """Answer direct questions about the creator or why Merge AI exists."""
-    q = re.sub(r"\s+", " ", str(question).casefold()).strip()
-    about = bool(re.search(r"\b(?:merge ai|mergeai|you|your|this ai|this app)\b", q))
-    creator = bool(re.search(
-        r"\b(?:who\s+(?:made|created|built|owns|developed)|"
-        r"who(?:'s| is)\s+(?:your|the)\s+(?:creator|owner)|"
-        r"your\s+(?:creator|owner)|who\s+is\s+khalid)\b", q
-    ))
-    purpose = bool(re.search(
-        r"\b(?:why\s+(?:were|was|did|is)|"
-        r"what\s+is\s+(?:your|the)\s+(?:purpose|goal)|"
-        r"why\s+create|reason\s+(?:for|behind))\b", q
-    ))
-    if about and creator and purpose:
+    """Answer ONLY a standalone question explicitly about Merge AI's origins.
+
+    Never hijack pasted test lists or other multi-question messages.
+    """
+    raw = str(question or "").strip()
+    if not raw or len(raw) > 170 or "\n" in raw or raw.count("?") > 1:
+        return None
+
+    q = re.sub(r"\s+", " ", raw.casefold()).strip(" \t?.!")
+
+    owner_patterns = (
+        r"(?:who (?:created|made|built|developed|owns) "
+        r"(?:you|merge ai|mergeai|this (?:ai|app))|"
+        r"who (?:is|was) (?:your|merge ai(?:'s)?) (?:creator|owner)|"
+        r"(?:who|what) (?:is|was) (?:your|the) creator(?: of merge ai)?|"
+        r"(?:tell me )?who (?:made|created|built) (?:you|merge ai)|"
+        r"who is behind merge ai)"
+    )
+    purpose_patterns = (
+        r"(?:why (?:were you|was merge ai|was this (?:ai|app)) "
+        r"(?:created|made|built)|"
+        r"why (?:did khalid create|did khalid make) merge ai|"
+        r"why (?:do you|does merge ai) exist|"
+        r"what (?:is|was) (?:your|merge ai(?:'s)?) "
+        r"(?:purpose|goal)|"
+        r"what (?:were you|was merge ai) (?:made|created|built) for)"
+    )
+
+    if re.fullmatch(
+        r"who (?:created|made|built) (?:you|merge ai) and why",
+        q,
+    ):
         return f"I was created by **{CREATOR_NAME}** for {CREATED_FOR}. {PURPOSE}"
-    if about and creator:
+
+    if re.fullmatch(owner_patterns, q):
         return f"**{CREATOR_NAME}** created Merge AI and is its project owner."
-    if about and purpose:
+
+    if re.fullmatch(purpose_patterns, q):
         return f"I was created by **{CREATOR_NAME}** for {CREATED_FOR}. {PURPOSE}"
+
     return None
