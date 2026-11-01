@@ -40,6 +40,8 @@ for name in (
 # ===================== IMPORTS =====================
 
 from cloud_history import CloudHistory, CloudHistoryError
+from personal_memory import suggest_memories, relevant_memories, is_memory_question, is_forget_request
+from about_merge_ai import PROJECT_CONTEXT, CREATOR_NAME, CREATED_FOR, PURPOSE, answer_project_question
 
 try:
     from merge_ai import MergeAI, default_providers
@@ -245,6 +247,8 @@ defaults = {
     "ma_owner": None,
     "ma_loaded": False,
     "ma_memories": [],
+    "ma_memory_suggestions": [],
+    "ma_memory_enabled": True,
     "ma_search": False,
     "ma_mode": "Fast",
     "ma_web": True,
@@ -296,6 +300,8 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_chats = []
     st.session_state.ma_active = ""
     st.session_state.ma_memories = []
+    st.session_state.ma_memory_suggestions = []
+    st.session_state.ma_memory_enabled = True
     st.session_state.ma_loaded = False
     st.session_state.ma_voice_reply = ""
     st.session_state.ma_voice_audio_b64 = ""
@@ -567,6 +573,11 @@ with st.sidebar:
 
     with st.expander("🧠 My memory"):
 
+        st.checkbox(
+            "Use my saved memories when answering",
+            key="ma_memory_enabled",
+            help="Controls whether memories are included in AI requests; it does not delete saved memories.",
+        )
         st.caption(
             "Only save information you want Merge AI "
             "to remember. Avoid passwords and secrets."
@@ -603,6 +614,29 @@ with st.sidebar:
                         "Memory could not be saved."
                     )
 
+        if st.session_state.ma_memory_suggestions:
+            st.markdown("**Suggested from your conversations**")
+            st.caption("Nothing is saved automatically. Review before saving.")
+            for idx, candidate in enumerate(list(st.session_state.ma_memory_suggestions)):
+                st.write("💡 " + candidate)
+                left, right = st.columns(2)
+                with left:
+                    if st.button("Save suggestion", key="mem_save_" + str(idx)):
+                        if not user or not db or st.session_state.ma_db_error:
+                            st.warning("Sign in and connect Supabase to save memory.")
+                        else:
+                            try:
+                                db.add_memory(candidate)
+                                st.session_state.ma_memories = db.list_memories()
+                                st.session_state.ma_memory_suggestions.remove(candidate)
+                                st.rerun()
+                            except CloudHistoryError:
+                                st.error("Memory could not be saved.")
+                with right:
+                    if st.button("Dismiss", key="mem_dismiss_" + str(idx)):
+                        st.session_state.ma_memory_suggestions.remove(candidate)
+                        st.rerun()
+
         for memory in st.session_state.ma_memories:
 
             st.write("• " + memory["content"])
@@ -624,6 +658,11 @@ with st.sidebar:
                     st.error(
                         "Could not delete memory."
                     )
+
+    with st.expander("ℹ️ About Merge AI"):
+        st.write("**Created by:** " + CREATOR_NAME)
+        st.write("**Originally built for:** " + CREATED_FOR)
+        st.write(PURPOSE)
 
     # ================= CLOUD ERROR =================
 
@@ -715,12 +754,14 @@ def extract(result):
 
 def build_context(chat, question):
 
-    # Explicitly saved preferences only.
-    memories = (
-        st.session_state.ma_memories[:20]
+    # Only previously approved memories, scoped to the signed-in Google user.
+    memories = relevant_memories(
+        question,
+        st.session_state.ma_memories if (user and st.session_state.ma_memory_enabled) else [],
     )
 
     lines = [
+        PROJECT_CONTEXT,
         "You are Merge AI, a helpful AI assistant.",
         "Use the conversation context to understand "
         "follow-up questions.",
@@ -735,9 +776,7 @@ def build_context(chat, question):
         )
 
         for m in memories:
-            lines.append(
-                "- " + m["content"][:500]
-            )
+            lines.append("- " + m[:500])
 
     # Recent messages only.
     recent = chat["messages"][-12:]
@@ -771,6 +810,20 @@ def build_context(chat, question):
 # ===================== ASK AI =====================
 
 def ask_ai(chat, question):
+    project_reply = answer_project_question(question)
+    if project_reply is not None:
+        return project_reply, []
+
+    if is_memory_question(question):
+        if not user:
+            return "Please sign in with Google to view your saved memories.", []
+        saved = [m.get("content", "") for m in st.session_state.ma_memories if m.get("content")]
+        if not saved:
+            return "I don't have saved memories for this account yet. Open **🧠 My memory** to add or approve some.", []
+        return "Here is what you've approved for me to remember:\n\n" + "\n".join("- " + item for item in saved), []
+
+    if is_forget_request(question):
+        return "To remove a saved memory, open **🧠 My memory** in the sidebar and click **Forget this**.", []
 
     prompt = build_context(
         chat,
@@ -1016,6 +1069,15 @@ if question and question.strip():
 
     # Persist to Supabase when connected.
     persist(chat)
+
+    # Detect possible memories for review; NEVER auto-save to Supabase.
+    if user and db and not st.session_state.ma_db_error:
+        previous = [m.get("content", "") for m in st.session_state.ma_memories]
+        previous += st.session_state.ma_memory_suggestions
+        for suggestion in suggest_memories(question, previous):
+            if len(st.session_state.ma_memory_suggestions) >= 6:
+                break
+            st.session_state.ma_memory_suggestions.append(suggestion)
 
     # Browser Live Voice response.
     if is_voice:
