@@ -809,6 +809,13 @@ def build_context(chat, question):
                 m.get("content", "")
             )[:1500]
 
+            # Do not feed old accidental draft-comparison replies
+            # back into the model; they can contaminate new answers.
+            if role == "assistant":
+                from merge_ai import is_draft_comparison
+                if is_draft_comparison(content):
+                    continue
+
             lines.append(
                 role + ": " + content
             )
