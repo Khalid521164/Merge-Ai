@@ -249,6 +249,8 @@ defaults = {
     "ma_memories": [],
     "ma_memory_suggestions": [],
     "ma_memory_enabled": True,
+    "ma_auto_memory": False,
+    "ma_auto_memory_notice": "",
     "ma_search": False,
     "ma_mode": "Fast",
     "ma_web": True,
@@ -302,6 +304,8 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_memories = []
     st.session_state.ma_memory_suggestions = []
     st.session_state.ma_memory_enabled = True
+    st.session_state.ma_auto_memory = False
+    st.session_state.ma_auto_memory_notice = ""
     st.session_state.ma_loaded = False
     st.session_state.ma_voice_reply = ""
     st.session_state.ma_voice_audio_b64 = ""
@@ -578,10 +582,19 @@ with st.sidebar:
             key="ma_memory_enabled",
             help="Controls whether memories are included in AI requests; it does not delete saved memories.",
         )
-        st.caption(
-            "Only save information you want Merge AI "
-            "to remember. Avoid passwords and secrets."
+        st.checkbox(
+            "Automatically remember my goals, preferences and projects",
+            key="ma_auto_memory",
+            disabled=not bool(user),
+            help="Off by default. When enabled, Merge AI saves selected non-sensitive facts from new messages to your signed-in account. You can delete any saved memory here.",
         )
+        st.caption(
+            "Automatic memory is off by default. It only saves recognized "
+            "goals, preferences and projects after you turn it on. "
+            "Avoid sharing sensitive information. You can delete any memory."
+        )
+        if st.session_state.ma_auto_memory_notice:
+            st.caption(st.session_state.ma_auto_memory_notice)
 
         memory_text = st.text_area(
             "Teach Merge AI",
@@ -616,7 +629,7 @@ with st.sidebar:
 
         if st.session_state.ma_memory_suggestions:
             st.markdown("**Suggested from your conversations**")
-            st.caption("Nothing is saved automatically. Review before saving.")
+            st.caption("Approve each suggestion, or turn on automatic memory above.")
             for idx, candidate in enumerate(list(st.session_state.ma_memory_suggestions)):
                 st.write("💡 " + candidate)
                 left, right = st.columns(2)
@@ -1070,14 +1083,32 @@ if question and question.strip():
     # Persist to Supabase when connected.
     persist(chat)
 
-    # Detect possible memories for review; NEVER auto-save to Supabase.
+    # Per-account memory: automatic saving requires an explicit opt-in.
+    # No content from anonymous visitors is stored as memory.
     if user and db and not st.session_state.ma_db_error:
         previous = [m.get("content", "") for m in st.session_state.ma_memories]
         previous += st.session_state.ma_memory_suggestions
-        for suggestion in suggest_memories(question, previous):
-            if len(st.session_state.ma_memory_suggestions) >= 6:
-                break
-            st.session_state.ma_memory_suggestions.append(suggestion)
+        candidates = suggest_memories(question, previous)
+        for suggestion in candidates:
+            if st.session_state.ma_auto_memory:
+                if len(st.session_state.ma_memories) >= 50:
+                    st.session_state.ma_auto_memory_notice = (
+                        "Memory is full. Delete some saved memories to add more."
+                    )
+                    break
+                try:
+                    db.add_memory(suggestion)
+                    st.session_state.ma_memories = db.list_memories()
+                    st.session_state.ma_auto_memory_notice = (
+                        "Saved a new memory automatically. You can delete it in My memory."
+                    )
+                except CloudHistoryError:
+                    st.session_state.ma_auto_memory_notice = (
+                        "Could not save memory to Supabase. Check your cloud connection."
+                    )
+                    break
+            elif len(st.session_state.ma_memory_suggestions) < 6:
+                st.session_state.ma_memory_suggestions.append(suggestion)
 
     # Browser Live Voice response.
     if is_voice:
