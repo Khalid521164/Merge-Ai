@@ -31,8 +31,8 @@ from __future__ import annotations
 
 import os
 import re
-import time
 import logging
+from html import unescape
 from dataclasses import dataclass
 from concurrent.futures import (
     ThreadPoolExecutor,
@@ -145,9 +145,16 @@ class Provider:
 def get_key(name: str) -> str:
     """Get a private key from environment."""
 
-    return os.environ.get(
-        name, ""
-    ).strip()
+    value = os.environ.get(name)
+    if value is not None:
+        return str(value).strip()
+    # BRAVE_SEARCH_API_KEY is not copied into os.environ by app.py,
+    # so we also read server-side Streamlit Secrets directly.
+    try:
+        import streamlit as st
+        return str(st.secrets.get(name, "")).strip()
+    except Exception:
+        return ""
 
 
 def default_providers() -> tuple[Provider, ...]:
@@ -531,6 +538,77 @@ def safe_source_url(value) -> str:
 
 
 # ==========================================
+# BRAVE SEARCH API (PRIMARY) / SEARCH PRIVACY
+# ==========================================
+
+BRAVE_URL = "https://api.search.brave.com/res/v1/web/search"
+
+
+def latest_question_for_search(context: str) -> str:
+    """Never send Supabase memories or earlier chat history to search APIs."""
+    marker = "\nCurrent question:\n"
+    return (context.rsplit(marker, 1)[-1] if marker in context else context).strip()
+
+
+def should_search(question: str) -> bool:
+    """Keep introductions and obvious private details out of web search."""
+    q = str(question or "").strip()
+    if not q or len(q) > 600:
+        return False
+    if re.match(r"(?i)^(?:hi\b|hey\b|hello\b|i am\b|i'm\b|my name is\b|thanks\b|thank you\b)", q):
+        return False
+    if re.search(r"(?i)\b(?:what do you (?:know|remember) about me|my password|my api key|my address)\b", q):
+        return False
+    if re.search(r"[\w.+-]+@[\w.-]+\.[a-z]{2,}", q, re.I):
+        return False
+    return True
+
+
+def search_brave(question: str, api_key: str) -> tuple[str, list[dict]]:
+    """Fetch public web snippets with Brave. Empty results trigger Tavily fallback."""
+    if not api_key or not should_search(question):
+        return "", []
+    try:
+        response = requests.get(
+            BRAVE_URL,
+            headers={"Accept": "application/json", "X-Subscription-Token": api_key},
+            params={
+                "q": question[:600],
+                "count": MAX_WEB_RESULTS,
+                "safesearch": "moderate",
+                "text_decorations": "false",
+            },
+            timeout=15,
+        )
+        response.raise_for_status()
+        data = response.json()
+        results = (data.get("web") or {}).get("results") or []
+    except (requests.RequestException, ValueError, AttributeError, TypeError):
+        logging.warning("Brave Search unavailable; trying Tavily fallback.")
+        return "", []
+
+    evidence, sources, seen = [], [], set()
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        url = safe_source_url(item.get("url"))
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        title = unescape(re.sub(r"<[^>]*>", "", str(item.get("title") or "Web source")))[:150]
+        snippet = unescape(re.sub(
+            r"<[^>]*>", "", str(item.get("description") or "")
+        ))[:1200]
+        if not snippet and isinstance(item.get("extra_snippets"), list):
+            snippet = unescape(" ".join(map(str, item["extra_snippets"][:2])))[:1200]
+        sources.append({"title": title, "url": url})
+        evidence.append(f"Title: {title}\nURL: {url}\nExcerpt: {snippet}")
+        if len(sources) >= MAX_WEB_RESULTS:
+            break
+    return "\n\n".join(evidence)[:MAX_SEARCH_CHARS], sources
+
+
+# ==========================================
 # TAVILY WEB SEARCH
 # ==========================================
 
@@ -719,6 +797,7 @@ class MergeAI:
         merger="groq",
         *,
         tavily_api_key=None,
+        brave_api_key=None,
     ):
 
         self.providers = tuple(
@@ -735,7 +814,10 @@ class MergeAI:
             else get_key("TAVILY_API_KEY")
         )
 
-        self._turns = []
+        self.brave_api_key = (
+            brave_api_key if brave_api_key is not None
+            else (get_key("BRAVE_SEARCH_API_KEY") or get_key("BRAVE_API_KEY"))
+        )
 
         self.last_report = {
             "sources": [],
@@ -1032,21 +1114,26 @@ class MergeAI:
             "merged": False,
         }
 
-        # Web research is optional.
-        # Keep working if Tavily fails.
-        research = ""
-        sources = []
-
-        if (
-            web_search
-            and self.tavily_api_key
-        ):
-            research, sources = search_tavily(
-                question,
-                self.tavily_api_key,
-            )
+        # Brave is primary; Tavily remains fallback. Only the latest
+        # question goes to a web provider (never saved account memories).
+        research, sources, search_provider = "", [], None
+        search_question = latest_question_for_search(question)
+        if web_search and should_search(search_question):
+            if self.brave_api_key:
+                research, sources = search_brave(
+                    search_question, self.brave_api_key
+                )
+                if sources:
+                    search_provider = "brave"
+            if not sources and self.tavily_api_key:
+                research, sources = search_tavily(
+                    search_question, self.tavily_api_key
+                )
+                if sources:
+                    search_provider = "tavily"
 
         self.last_report["sources"] = sources
+        self.last_report["search_provider"] = search_provider
 
         messages = self.messages_for(
             question,
@@ -1129,12 +1216,23 @@ class MergeAI:
             ]
         }
 
-        answer = self.merge_drafts(
-            question,
-            drafts,
-            research,
-            max_tokens,
-        ).strip()
+        # FAST mode returns a direct provider answer. Only DEEP mode
+        # tries synthesis. Never expose the hidden draft-review table.
+        if fast:
+            answer = next((
+                drafts[name] for name in ("groq", "gemini", "openrouter", "groq_backup")
+                if name in drafts and not is_draft_comparison(drafts[name])
+            ), "")
+        else:
+            answer = self.merge_drafts(
+                question, drafts, research, max_tokens
+            ).strip()
+
+        if answer and is_draft_comparison(answer):
+            answer = self.direct_answer(question, research, max_tokens)
+
+        if not answer:
+            answer = self.direct_answer(question, research, max_tokens)
 
         if not answer:
             raise MergeAIError(
