@@ -628,12 +628,14 @@ def build_merge_prompt(
         "Question:",
         question,
         "",
-        "Compare the available model drafts.",
-        "Keep correct, useful information.",
-        "Resolve disagreements carefully.",
-        "Do not assume agreement proves truth.",
-        "Do not mention internal model drafts.",
-        "Do not invent citations.",
+        "The model drafts are private reference material, not the requested output.",
+        "Use their useful facts silently to answer the actual user question.",
+        "Answer the user directly in a single finished response.",
+        "Do not analyze, compare, score, summarize, or mention drafts or providers.",
+        "Do not use headings like Draft, Comparison, Agreement, or Tone/Style.",
+        "Never describe the task as choosing between Groq and Gemini.",
+        "Do not assume agreement proves truth. Resolve disagreements carefully.",
+        "Do not invent citations. Return only the final user-facing answer.",
         "",
     ]
 
@@ -651,11 +653,28 @@ def build_merge_prompt(
             "",
         ])
 
-    pieces.append(
-        "Write the final helpful answer now."
-    )
+    pieces.extend([
+        "FINAL OUTPUT REQUIREMENT:",
+        "Respond as Merge AI to the user's question, not as a reviewer.",
+        "Write only the final answer. Never mention the hidden drafts.",
+        "If the user shares personal information, respond naturally.",
+    ])
 
     return "\n".join(pieces)
+
+
+def is_draft_comparison(text: str) -> bool:
+    """Recognize an accidental internal-review response, not normal answers."""
+    if not text:
+        return False
+    t = text.casefold()
+    return bool(
+        re.search(r"\\b(?:both|these|the) drafts?\\b", t)
+        or re.search(r"\\b(?:groq|gemini|openrouter) draft\\b", t)
+        or ("tone/style" in t and ("draft" in t or "groq" in t))
+        or ("draft" in t and "comparison" in t)
+        or re.search(r"\\b(?:draft 1|draft 2)\\b", t)
+    )
 
 
 # ==========================================
@@ -718,19 +737,9 @@ class MergeAI:
 
         messages = []
 
-        for user, assistant in (
-            self._turns[-MAX_HISTORY_TURNS:]
-        ):
-            messages.append({
-                "role": "user",
-                "content": str(user),
-            })
-
-            messages.append({
-                "role": "assistant",
-                "content": str(assistant),
-            })
-
+        # The Streamlit app already supplies the signed-in user's recent
+        # conversation and approved memories inside 'question'.
+        # Do not reuse process-global turns across separate accounts.
         current = question
 
         if research:
@@ -912,6 +921,9 @@ class MergeAI:
                     max_tokens,
                 )
 
+                if is_draft_comparison(answer):
+                    logging.warning("%s returned a draft comparison; using a direct answer instead.", name)
+                    continue
                 self.last_report["merged"] = True
                 return answer
 
@@ -929,9 +941,10 @@ class MergeAI:
             "gemini",
             "openrouter",
         ):
-            if name in drafts:
+            if name in drafts and not is_draft_comparison(drafts[name]):
                 return drafts[name]
 
+        # Last resort: return the raw answer instead of concealing a failure.
         return next(iter(drafts.values()))
 
     # --------------------------------------
@@ -1073,13 +1086,6 @@ class MergeAI:
                 "The AI returned an empty answer."
             )
 
-        # Update conversation context.
-        self._turns.append(
-            (question, answer)
-        )
-
-        self._turns = self._turns[
-            -MAX_HISTORY_TURNS:
-        ]
-
+        # Conversation history is supplied per user by app.py; do not
+        # accumulate a shared cache_resource instance's history here.
         return answer
