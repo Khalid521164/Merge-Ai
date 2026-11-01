@@ -1,7 +1,5 @@
 
-# Merge AI — Streamlit Website Dependencies
-# Keep Kokoro dependencies in voice-server/requirements.txt
-
+# Merge AI — Main Website
 streamlit>=1.52.0,<2.0
 requests>=2.31.0,<3.0.0
 Authlib>=1.3.2,<2.0.0
