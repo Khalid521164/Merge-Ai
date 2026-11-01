@@ -669,11 +669,11 @@ def is_draft_comparison(text: str) -> bool:
         return False
     t = text.casefold()
     return bool(
-        re.search(r"\\b(?:both|these|the) drafts?\\b", t)
-        or re.search(r"\\b(?:groq|gemini|openrouter) draft\\b", t)
+        re.search(r"\b(?:both|these|the) drafts?\b", t)
+        or re.search(r"\b(?:groq|gemini|openrouter) draft\b", t)
         or ("tone/style" in t and ("draft" in t or "groq" in t))
         or ("draft" in t and "comparison" in t)
-        or re.search(r"\\b(?:draft 1|draft 2)\\b", t)
+        or re.search(r"\b(?:draft 1|draft 2)\b", t)
     )
 
 
