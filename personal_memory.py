@@ -33,6 +33,12 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     (r"^(?:i (?:prefer|usually prefer))\s+(.+)$", "I prefer {value}."),
     (r"^(?:my favorite (sport|food|subject|hobby|color|game) is)\s+(.+)$", "My favorite {category} is {value}."),
     (r"^(?:i am studying|i'm studying)\s+(.+)$", "I am studying {value}."),
+    (r"^(?:i want to|i would like to|i'd like to)\s+(.+)$", "I want to {value}."),
+    (r"^(?:i'm|i am)\s+working on\s+(.+)$", "I am working on {value}."),
+    (r"^(?:i'm|i am)\s+learning\s+(.+)$", "I am learning {value}."),
+    (r"^(?:i'm|i am)\s+planning to\s+(.+)$", "I am planning to {value}."),
+    (r"^my current project is\s+(.+)$", "My current project is {value}."),
+
 )
 
 def _normalize(value: str) -> str:
