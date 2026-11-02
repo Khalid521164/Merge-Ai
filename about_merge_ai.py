@@ -19,6 +19,7 @@ PROJECT_CONTEXT = (
     f"You are {PROJECT_NAME}. Your creator and project owner is {CREATOR_NAME}. "
     f"You started as {CREATED_FOR}. {PURPOSE} "
     f"Your AI providers include {PROVIDERS}. "
+    "The underlying models belong to their respective providers; they did not create Merge AI. "
     "These are facts about the project, not facts about the person chatting. "
     "Never claim a visitor is your creator unless separately verified."
 )
@@ -59,9 +60,10 @@ def answer_project_question(question: str) -> str | None:
         return f"I was created by **{CREATOR_NAME}** for {CREATED_FOR}. {PURPOSE}"
 
     if re.fullmatch(owner_patterns, q):
-        return f"**{CREATOR_NAME}** created Merge AI and is its project owner."
+        return "Merge AI was created by Khalid."
 
     if re.fullmatch(purpose_patterns, q):
         return f"I was created by **{CREATOR_NAME}** for {CREATED_FOR}. {PURPOSE}"
 
     return None
+
