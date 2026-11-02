@@ -83,9 +83,9 @@ export default function(component) {
     audioPlayer:null,voiceProvider:'kokoro',audioError:'',token:0,pending:''});
   state.ui={overlay,dialog,mic,micLabel,status,userText,aiText,langSelect,play,providerStatus,setTriggerValue};
   langSelect.value=state.lang;
-  voiceSelect.querySelector('option[value=kokoro]').disabled=!data.kokoro_available;
-  // Keep the user's preference through a temporary generation failure.
-  if(!data.kokoro_available)state.voiceProvider='browser';
+  // Availability affects playback, not the user's ability to select Kokoro.
+  voiceSelect.querySelector('option[value=kokoro]').disabled=false;
+  state.kokoroAvailable=Boolean(data.kokoro_available);
   voiceSelect.value=state.voiceProvider;
   userText.textContent=state.lastUser||'Your words will appear here…';
   aiText.textContent=state.lastAi||'I’m ready to listen.';
@@ -95,7 +95,7 @@ export default function(component) {
     u.dialog.dataset.mode=state.speaking?'speaking':state.awaiting?'thinking':state.listening?'listening':'idle';
     u.status.textContent=state.speaking?'🔊 Merge AI is speaking…':state.awaiting?'⏳ Merge AI is thinking…':state.listening?'🔵 Listening… speak now':state.muted?'Microphone muted':!Rec?'Speech recognition unavailable in this browser':'Ready to talk';
     u.mic.setAttribute('aria-pressed',String(state.muted));u.micLabel.textContent=state.muted?'Unmute':'Mute';
-    u.providerStatus.textContent=state.audioError||(state.voiceProvider==='kokoro'?'✦ Kokoro · Liam · American English':'Browser text-to-speech');};
+    u.providerStatus.textContent=state.audioError||(state.voiceProvider==='kokoro'?(state.kokoroAvailable?'✦ Kokoro · Liam · American English':'Kokoro selected · browser fallback until available'):'Browser text-to-speech');};
   const listen=()=>{
     if(!state.open||!state.enabled||state.muted||state.listening||state.awaiting||state.speaking||!Rec)return;
     const rec=new Rec();state.rec=rec;rec.lang=state.lang;rec.continuous=false;rec.interimResults=true;rec.maxAlternatives=1;
