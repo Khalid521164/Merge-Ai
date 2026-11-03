@@ -6,6 +6,7 @@ import json
 import os
 import time
 import uuid
+import logging
 
 import streamlit as st
 
@@ -42,6 +43,16 @@ for name in (
 from cloud_history import CloudHistory, CloudHistoryError
 from personal_memory import suggest_memories, relevant_memories, is_memory_question, is_forget_request
 from about_merge_ai import PROJECT_CONTEXT, CREATOR_NAME, CREATED_FOR, PURPOSE, answer_project_question
+from kokoro_tts import SpeechResult, availability, start_audio
+from voice_config import get_voice_config
+from listen_button import listen_button
+
+
+def voice_settings():
+    try:
+        return get_voice_config(st.secrets)
+    except (FileNotFoundError, AttributeError):
+        return get_voice_config()
 
 try:
     from merge_ai import MergeAI, default_providers
@@ -899,6 +910,21 @@ st.markdown(
 
 chat = active_chat()
 
+# Audio belongs to this account and chat, never to a shared engine or cache.
+voice_scope = (owner, chat["id"])
+if st.session_state.get("ma_voice_scope") != voice_scope:
+    for key in ("ma_voice_job", "ma_listen_job"):
+        old_job = st.session_state.pop(key, None) or {}
+        if old_job.get("future"):
+            old_job["future"].cancel()
+    st.session_state.ma_voice_scope = voice_scope
+    st.session_state.ma_voice_scope_token = str(uuid.uuid4())
+    st.session_state.ma_voice_reply = ""
+    st.session_state.ma_voice_reply_id = ""
+    st.session_state.ma_voice_failed_id = ""
+    st.session_state.ma_voice_audio_b64 = ""
+    st.session_state.pop("ma_pending_voice", None)
+
 
 # ===================== WELCOME =====================
 
@@ -946,6 +972,7 @@ for i, msg in enumerate(chat["messages"]):
         )
 
         st.markdown(content)
+        listen_button(content, key=st.session_state.ma_voice_scope_token + "_" + str(i), config=voice_settings())
 
         sources = (
             msg.get("sources") or []
@@ -982,12 +1009,18 @@ for i, msg in enumerate(chat["messages"]):
 
 st.caption("🎙️ LIVE VOICE")
 
-voice_event = None
-
-if voice_chat:
-
+@st.fragment(run_every=0.5 if (st.session_state.get("ma_voice_job") or {}).get("future") else None)
+def render_live_voice():
+    config = voice_settings()
+    job = st.session_state.get("ma_voice_job") or {}
+    future = job.get("future")
+    if future and future.done():
+        job["result"] = future.result()
+        job["future"] = None
+        st.rerun()  # Stop polling; deliver exactly this reply's completed audio.
+    result = job.get("result") or SpeechResult(allow_fallback=config.browser_fallback)
     try:
-        voice_event = voice_chat(
+        event = voice_chat(
             reply=(
                 st.session_state.ma_voice_reply
             ),
@@ -998,24 +1031,37 @@ if voice_chat:
                 st.session_state.ma_voice_failed_id
             ),
             audio_b64=(
-                st.session_state.ma_voice_audio_b64
+                result.audio_b64
             ),
-            kokoro_available=False,
+            kokoro_available=availability(config)["configured"],
+            conversation_id=st.session_state.ma_voice_scope_token,
+            audio_pending=bool(future),
+            audio_error=result.message if result.status != "ready" and job else "",
+            allow_fallback=result.allow_fallback,
+            config=config,
         )
+        if event:
+            st.session_state.ma_pending_voice = event
+            st.rerun()
 
-    except Exception:
+    except Exception as exc:
+        logging.error("Live Voice rendering failed: type=%s", type(exc).__name__)
 
         st.warning(
             "Live Voice could not start. "
             "Check voice_chat.py."
         )
 
+if voice_chat:
+    render_live_voice()
 else:
 
     st.caption(
         "Add voice_chat.py to enable "
         "the live voice orb."
     )
+
+voice_event = st.session_state.pop("ma_pending_voice", None)
 
 
 # ===================== INPUT =====================
@@ -1135,12 +1181,18 @@ if question and question.strip():
         )
 
         st.session_state.ma_voice_reply_id = (
-            str(uuid.uuid4())
+            voice_event["id"]
         )
 
         st.session_state.ma_voice_audio_b64 = ""
 
         st.session_state.ma_voice_failed_id = ""
+        config = voice_settings()
+        future = None
+        result = SpeechResult(status="browser", message="Browser voice selected.", allow_fallback=config.browser_fallback)
+        if voice_event.get("voice_provider") == "kokoro":
+            future = start_audio(answer, language=voice_event.get("language", "en-US"), config=config)
+        st.session_state.ma_voice_job = {"future": future, "result": result}
 
     st.rerun()
 

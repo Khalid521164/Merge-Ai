@@ -6,6 +6,8 @@ by the browser vendor. Only transcripts are sent to Merge AI's Python backend.
 from __future__ import annotations
 
 import streamlit as st
+from voice_text import check_final_answer, prepare_speech_text, browser_chunks, UnsafeSpeechText
+from voice_config import VoiceConfig
 
 HTML = r'''
 <div class="mv-mount">
@@ -67,94 +69,129 @@ export default function(component) {
     ['uk-UA','Українська'],['he-IL','עברית'],['el-GR','Ελληνικά'],['sv-SE','Svenska'],['da-DK','Dansk'],
     ['no-NO','Norsk'],['fi-FI','Suomi'],['ro-RO','Română'],['cs-CZ','Čeština'],['hu-HU','Magyar']
   ];
+  langSelect.replaceChildren();
   langs.forEach(([code,label])=>{const opt=document.createElement('option');opt.value=code;opt.textContent=label;langSelect.append(opt)});
-  const state=window.__mergeVoice || (window.__mergeVoice={open:false,enabled:false,muted:false,listening:false,awaiting:false,speaking:false,lang:'en-US',rec:null,seenReply:'',seenFail:'',speech:null,lastUser:'',lastAi:'',audioB64:'',audioPlayer:null,voiceProvider:'kokoro',audioError:''});
-  state.ui={overlay,dialog,mic,micLabel,status,userText,aiText,langSelect,play,setTriggerValue};
+  const synth=window.speechSynthesis;
+  const previous=window.__mergeVoice;
+  if(previous&&previous.conversation!==data.conversation_id){
+    previous.enabled=false;previous.token++;
+    if(previous.rec)previous.rec.abort();
+    if(previous.audioPlayer)previous.audioPlayer.pause();
+    if(synth)synth.cancel();window.__mergeVoice=null;
+  }
+  const state=window.__mergeVoice||(window.__mergeVoice={conversation:data.conversation_id,
+    open:false,enabled:false,muted:false,listening:false,awaiting:false,speaking:false,
+    lang:'en-US',rec:null,seenReply:'',seenFail:'',lastUser:'',lastAi:'',audioB64:'',
+    audioPlayer:null,voiceProvider:'kokoro',audioError:'',token:0,pending:'',chunks:[],allowFallback:true,speechStopped:false});
+  state.ui={overlay,dialog,mic,micLabel,status,userText,aiText,langSelect,play,providerStatus,setTriggerValue};
   langSelect.value=state.lang;
-  if(!data.kokoro_available){voiceSelect.querySelector('option[value=kokoro]').disabled=true; if(state.voiceProvider==='kokoro')state.voiceProvider='browser';}
+  // Availability affects playback, not the user's ability to select Kokoro.
+  voiceSelect.querySelector('option[value=kokoro]').disabled=false;
+  state.kokoroAvailable=Boolean(data.kokoro_available);
   voiceSelect.value=state.voiceProvider;
   userText.textContent=state.lastUser||'Your words will appear here…';
   aiText.textContent=state.lastAi||'I’m ready to listen.';
-  const synth=window.speechSynthesis;
-  // The browser may require a direct user gesture before TTS can start.
-  // Keep manual playback available even if background auto-play is blocked.
-  const unlockSpeech=()=>{
-    if(!synth)return;
-    try {synth.cancel();const silent=new SpeechSynthesisUtterance(' ');silent.volume=0;synth.speak(silent);} catch(e){}
-  };
-  const stopRecognition=()=>{const r=state.rec;state.rec=null;state.listening=false;if(r){try{r.abort()}catch(e){}}};
-  const refresh=()=>{const u=state.ui;u.overlay.hidden=!state.open;u.play.hidden=!state.lastAi||!state.open;const mode=state.speaking?'speaking':state.awaiting?'thinking':state.listening?'listening':'idle';u.dialog.dataset.mode=mode;u.status.textContent=!Rec?'Speech recognition unavailable in this browser':state.speaking?'🔊 Merge AI is speaking…':state.awaiting?'⏳ Merge AI is thinking…':state.listening?'🔵 Listening… speak now':state.muted?'Microphone muted':'Ready to talk';u.mic.setAttribute('aria-pressed',String(state.muted));u.micLabel.textContent=state.muted?'Unmute':'Mute';providerStatus.textContent=state.audioError||(state.voiceProvider==='kokoro'?'✦ Kokoro · selected voice':'Browser text-to-speech');};
+  const stopRecognition=()=>{const rec=state.rec;state.rec=null;state.listening=false;if(rec){rec.onend=null;rec.abort();}};
+  const stopAudio=()=>{state.token++;if(state.audioPlayer){state.audioPlayer.pause();state.audioPlayer=null;}
+    if(window.__mergeAudioOwner==='live'){if(synth)synth.cancel();window.__mergeStopAudio=null;window.__mergeAudioOwner=null;}state.speaking=false;};
+  const claimAudio=()=>{if(window.__mergeStopAudio&&window.__mergeAudioOwner!=='live')window.__mergeStopAudio();window.__mergeStopAudio=stopAudio;window.__mergeAudioOwner='live';};
+  const refresh=()=>{const u=state.ui;u.overlay.hidden=!state.open;u.play.hidden=!state.lastAi||!state.open;
+    u.dialog.dataset.mode=state.speaking?'speaking':state.awaiting?'thinking':state.listening?'listening':'idle';
+    u.status.textContent=state.speaking?'🔊 Merge AI is speaking…':state.awaiting?'⏳ Merge AI is thinking…':state.listening?'🔵 Listening… speak now':state.muted?'Microphone muted':!Rec?'Speech recognition unavailable in this browser':'Ready to talk';
+    u.mic.setAttribute('aria-pressed',String(state.muted));u.micLabel.textContent=state.muted?'Unmute':'Mute';
+    u.providerStatus.textContent=state.audioError||(state.voiceProvider==='kokoro'?(state.kokoroAvailable?'✦ Kokoro · Liam · American English':'Kokoro selected · browser fallback until available'):'Browser text-to-speech');};
   const listen=()=>{
     if(!state.open||!state.enabled||state.muted||state.listening||state.awaiting||state.speaking||!Rec)return;
     const rec=new Rec();state.rec=rec;rec.lang=state.lang;rec.continuous=false;rec.interimResults=true;rec.maxAlternatives=1;
-    rec.onresult=(event)=>{let final='',partial='';for(let i=event.resultIndex;i<event.results.length;i++){const part=event.results[i][0].transcript;if(event.results[i].isFinal)final+=part;else partial+=part;}
+    rec.onresult=event=>{if(state.rec!==rec||!state.open)return;let final='',partial='';
+      for(let i=event.resultIndex;i<event.results.length;i++){const part=event.results[i][0].transcript;if(event.results[i].isFinal)final+=part;else partial+=part;}
       state.ui.userText.textContent=final||partial||'Listening…';
-      if(final.trim()&&!state.awaiting){state.lastUser=final.trim();state.awaiting=true;stopRecognition();state.ui.aiText.textContent='Thinking…';state.ui.setTriggerValue('transcript',{id:Date.now()+'-'+Math.random(),text:state.lastUser.slice(0,1000),language:state.lang,language_name:langs.find(v=>v[0]===state.lang)?.[1]||state.lang,voice_provider:state.voiceProvider});refresh()}
+      if(final.trim()&&!state.awaiting){state.speechStopped=false;state.lastUser=final.trim();state.awaiting=true;stopRecognition();state.ui.aiText.textContent='Thinking…';
+        state.pending=Date.now()+'-'+Math.random();
+        state.ui.setTriggerValue('transcript',{id:state.pending,text:state.lastUser.slice(0,1000),language:state.lang,language_name:langs.find(v=>v[0]===state.lang)?.[1]||state.lang,voice_provider:state.voiceProvider});refresh();}
     };
-    rec.onerror=event=>{state.listening=false;if(['not-allowed','service-not-allowed'].includes(event.error))state.muted=true;state.ui.status.textContent='Microphone: '+event.error;};
-    rec.onend=()=>{if(state.rec===rec)state.rec=null;state.listening=false;refresh();};
-    try{rec.start();state.listening=true;refresh()}catch(e){state.listening=false;state.ui.status.textContent='Could not open the microphone.';}
+    rec.onerror=event=>{if(state.rec!==rec)return;state.listening=false;
+      if(['not-allowed','service-not-allowed','audio-capture'].includes(event.error))state.muted=true;
+      refresh();state.ui.status.textContent='Microphone: '+event.error;};
+    rec.onend=()=>{if(state.rec!==rec)return;state.rec=null;state.listening=false;refresh();
+      if(state.open&&state.enabled&&!state.muted&&!state.awaiting&&!state.speaking)setTimeout(listen,250);};
+    try{rec.start();state.listening=true;refresh();}catch(e){state.listening=false;state.ui.status.textContent='Could not open the microphone.';}
   };
   const speakAnswer=()=>{
-    if(state.voiceProvider==='kokoro' && state.lang.startsWith('en') && state.audioB64){
-      stopRecognition();
-      if(synth)synth.cancel();
-      if(state.audioPlayer){state.audioPlayer.pause();state.audioPlayer=null;}
-      const player=new Audio('data:audio/wav;base64,'+state.audioB64);
-      state.audioPlayer=player;
-      state.speaking=true;refresh();
-      player.onended=()=>{state.speaking=false;state.audioPlayer=null;refresh();if(state.open&&state.enabled&&!state.muted)listen();};
-      player.onerror=()=>{state.audioB64='';state.audioPlayer=null;state.speaking=false;refresh();state.audioError='Kokoro playback failed — using browser voice';speakAnswer();};
-      player.play().catch(()=>{state.speaking=false;refresh();state.ui.status.textContent='Click 🔊 Play answer to hear Kokoro.';});
-      return;
-    }
-    if(!synth||!state.lastAi){state.ui.status.textContent='Speech playback is unavailable on this browser.';return;}
-    stopRecognition();
-    synth.cancel();
-    // Speech engines have length limits. Split long responses into sentences.
-    const cleaned=state.lastAi.replace(/[`*_#]/g,'').replace(/https?:\/\/\S+/g,' source link ').trim();
-    const chunks=cleaned.match(/[\s\S]{1,180}(?:[.!?。！？]\s*|$)/g)||[cleaned];
-    let index=0;
-    const next=()=>{
-      if(!state.open||!state.enabled||index>=chunks.length){state.speaking=false;refresh();if(state.open&&state.enabled&&!state.muted)listen();return;}
-      const utter=new SpeechSynthesisUtterance(chunks[index++]);utter.lang=state.lang;utter.rate=1;
-      const voices=synth.getVoices();const desired=state.lang.toLowerCase();
-      const voice=voices.find(v=>v.lang?.toLowerCase()===desired)||voices.find(v=>v.lang?.split('-')[0]===desired.split('-')[0]);
-      if(voice)utter.voice=voice;
-      utter.onend=next;
-      utter.onerror=e=>{state.speaking=false;refresh();state.ui.status.textContent='Audio could not play. Check device volume and browser voices.';};
-      try{synth.speak(utter);if(synth.paused)synth.resume();}catch(e){state.speaking=false;refresh();state.ui.status.textContent='Audio blocked. Click Play answer.';}
+    if(!state.open||!state.enabled||!state.lastAi)return;
+    stopRecognition();stopAudio();claimAudio();const token=state.token;
+    const finished=()=>{if(token!==state.token)return;state.speaking=false;state.audioPlayer=null;refresh();listen();};
+    const browserSpeech=()=>{
+      if(!synth){finished();state.ui.status.textContent='Speech playback is unavailable on this browser.';return;}
+      if(!state.allowFallback){state.audioError=state.audioError||'Speech playback is unavailable.';finished();return;}
+      const chunks=state.chunks;
+      let index=0;state.speaking=true;refresh();
+      const next=()=>{if(token!==state.token||!state.open||!state.enabled)return;if(index>=chunks.length){finished();return;}
+        const utter=new SpeechSynthesisUtterance(chunks[index++]);utter.lang=state.lang;utter.rate=Number(data.speed||1.03);
+        const voices=synth.getVoices(), desired=state.lang.toLowerCase();
+        const voice=voices.find(v=>v.lang?.toLowerCase()===desired)||voices.find(v=>v.lang?.split('-')[0]===desired.split('-')[0]);
+        if(voice)utter.voice=voice;utter.onend=next;
+        utter.onerror=()=>{if(token!==state.token)return;state.speaking=false;refresh();state.ui.status.textContent='Click Play answer to retry speech.';};
+        try{synth.speak(utter);if(synth.paused)synth.resume();}catch(e){state.speaking=false;refresh();}
+      };next();
     };
-    state.speaking=true;refresh();next();
+    if(state.voiceProvider==='kokoro'&&state.lang.startsWith('en')&&state.audioB64){
+      const player=new Audio('data:audio/wav;base64,'+state.audioB64);state.audioPlayer=player;state.speaking=true;refresh();
+      player.onended=finished;
+      let failed=false;
+      player.onerror=()=>{if(token!==state.token||failed)return;failed=true;player.pause();state.audioB64='';state.audioPlayer=null;state.speaking=false;state.audioError=state.allowFallback?'Kokoro playback failed — using browser voice':'Kokoro playback failed';browserSpeech();};
+      player.play().catch(error=>{if(token!==state.token)return;state.speaking=false;refresh();
+        if(error.name==='NotAllowedError')state.ui.status.textContent='Click 🔊 Play answer to hear Kokoro.';
+        else player.onerror();});return;
+    }
+    if(state.voiceProvider==='kokoro')state.audioError=state.audioError||(state.lang.startsWith('en')?'Kokoro unavailable — browser fallback':'Browser voice for this language');
+    browserSpeech();
   };
-  play.onclick=()=>{unlockSpeech();speakAnswer();};
-  voiceSelect.onchange=()=>{state.voiceProvider=voiceSelect.value;state.audioError=''; if(state.audioPlayer){state.audioPlayer.pause();state.audioPlayer=null;} if(synth)synth.cancel();state.speaking=false;refresh();};
-  const close=()=>{state.open=false;state.enabled=false;state.awaiting=false;state.speaking=false;stopRecognition();if(synth)synth.cancel();if(state.audioPlayer){state.audioPlayer.pause();state.audioPlayer=null;}refresh()};
-  const open=()=>{unlockSpeech();state.open=true;state.enabled=true;state.muted=false;refresh();listen()};
+  play.onclick=()=>{state.speechStopped=false;speakAnswer();};
+  voiceSelect.onchange=()=>{stopAudio();state.voiceProvider=voiceSelect.value;state.audioError='';refresh();listen();};
+  const close=()=>{state.open=false;state.enabled=false;state.awaiting=false;state.pending='';stopRecognition();stopAudio();refresh();};
+  const open=()=>{state.open=true;state.enabled=true;state.muted=false;refresh();listen();};
   openBtn.onclick=open;closeBtn.onclick=close;hang.onclick=close;
-  mic.onclick=()=>{state.muted=!state.muted;if(state.muted){stopRecognition();if(synth)synth.cancel();state.speaking=false}else{listen()}refresh()};
-  langSelect.onchange=()=>{state.lang=langSelect.value;stopRecognition();if(synth)synth.cancel();state.speaking=false;if(state.enabled&&!state.awaiting&&!state.muted)listen();refresh()};
-  if(data.reply_id&&data.reply_id!==state.seenReply){
-    state.seenReply=data.reply_id;state.awaiting=false;
-    state.lastAi=String(data.reply||'');state.audioB64=String(data.audio_b64||'');state.audioError=(state.voiceProvider==='kokoro'&&!state.audioB64)?'Kokoro unavailable — browser fallback':'';state.ui.aiText.textContent=state.lastAi;
-    stopRecognition();refresh();
-    if(state.open&&state.enabled&&state.lastAi)speakAnswer();
-    else if(state.open&&state.enabled&&!state.muted)listen();
+  mic.onclick=()=>{state.muted=!state.muted;if(state.muted){stopRecognition();stopAudio();state.speechStopped=true;}else listen();refresh();};
+  langSelect.onchange=()=>{stopRecognition();stopAudio();state.pending='';state.awaiting=false;state.speechStopped=true;state.lang=langSelect.value;state.audioError='';listen();refresh();};
+  if(data.audio_pending&&data.reply_id===state.pending){
+    state.ui.aiText.textContent=String(data.reply||'');
+    state.audioError='Preparing Kokoro voice…';
   }
-  if(data.failed_id&&data.failed_id!==state.seenFail){state.seenFail=data.failed_id;state.awaiting=false;state.ui.aiText.textContent='I could not complete that answer. Please try again.';if(state.enabled&&!state.muted)listen()}
+  if(!data.audio_pending&&data.reply_id&&data.reply_id!==state.seenReply&&data.reply_id===state.pending){
+    state.seenReply=data.reply_id;state.awaiting=false;state.pending='';state.lastAi=String(data.reply||'');
+    state.audioB64=String(data.audio_b64||'');state.chunks=Array.isArray(data.speech_chunks)?data.speech_chunks:[];
+    state.allowFallback=data.allow_fallback!==false;state.audioError=String(data.audio_error||'');state.ui.aiText.textContent=state.lastAi;
+    stopRecognition();refresh();if(state.open&&state.enabled&&!state.muted&&!state.speechStopped)speakAnswer();else listen();
+  }
+  if(data.failed_id&&data.failed_id!==state.seenFail&&data.failed_id===state.pending){
+    state.seenFail=data.failed_id;state.awaiting=false;state.pending='';state.ui.aiText.textContent='I could not complete that answer. Please try again.';listen();}
   refresh();
   return ()=>{};
 }
+
 '''
 
 voice_component = st.components.v2.component('merge_ai_voice_modal', html=HTML, css=CSS, js=JS)
 
 
-def voice_chat(*, reply: str = '', reply_id: str = '', failed_id: str = '', audio_b64: str = '', kokoro_available: bool = False) -> dict | None:
-    """Render button/popup and return {text, language, language_name} for a new utterance."""
+def voice_chat(*, reply: str = '', reply_id: str = '', failed_id: str = '', audio_b64: str = '',
+               kokoro_available: bool = False, conversation_id: str = '', audio_pending: bool = False,
+               audio_error: str = '', allow_fallback: bool = True, config: VoiceConfig | None = None) -> dict | None:
+    """Existing interface, extended with request-scoped delayed audio metadata."""
+    config = config or VoiceConfig()
+    try:
+        check_final_answer(reply)
+        chunks = browser_chunks(prepare_speech_text(reply))
+    except UnsafeSpeechText as exc:
+        chunks, audio_b64, allow_fallback, audio_error = [], '', False, str(exc)
     result = voice_component(
         key='merge_ai_voice_modal',
-        data={'reply': reply, 'reply_id': reply_id, 'failed_id': failed_id, 'audio_b64': audio_b64, 'kokoro_available': kokoro_available},
+        data={'reply': reply, 'reply_id': reply_id, 'failed_id': failed_id, 'audio_b64': audio_b64,
+              'kokoro_available': kokoro_available, 'conversation_id': conversation_id,
+              'audio_pending': audio_pending, 'audio_error': audio_error,
+              'allow_fallback': allow_fallback and config.browser_fallback, 'speech_chunks': chunks,
+              'speed': config.speed},
         on_transcript_change=lambda: None,
     )
     event = getattr(result, 'transcript', None)
@@ -165,6 +202,7 @@ def voice_chat(*, reply: str = '', reply_id: str = '', failed_id: str = '', audi
         return None
     st.session_state.ma_last_voice_event = event_id
     return {
+        'id': event_id,
         'text': event['text'].strip()[:1000],
         'language': str(event.get('language') or 'en-US')[:20],
         'language_name': str(event.get('language_name') or 'English')[:70],
