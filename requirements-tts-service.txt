@@ -1,0 +1,4 @@
+-r requirements-kokoro.txt
+requests>=2.31,<3
+starlette>=0.40,<2
+uvicorn>=0.30,<1

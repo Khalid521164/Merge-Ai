@@ -11,7 +11,7 @@ from merge_ai import build_merge_prompt, is_draft_comparison
 
 class AnswerRoutingTests(unittest.TestCase):
     def test_creator_question(self):
-        self.assertIn("Khalid Bin Ashraf", answer_project_question("Who created Merge AI?"))
+        self.assertEqual("Merge AI was created by Khalid.", answer_project_question("Who created Merge AI?"))
 
     def test_purpose_question(self):
         self.assertIn("science fair", answer_project_question("Why were you created?"))
@@ -57,3 +57,4 @@ class AnswerRoutingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

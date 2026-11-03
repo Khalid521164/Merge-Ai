@@ -3,6 +3,7 @@
 
 import html
 import json
+import logging
 import os
 import time
 import uuid
@@ -31,6 +32,7 @@ for name in (
     "OPENROUTER_API_KEY", "TAVILY_API_KEY",
     "GEMINI_MODEL", "GROQ_MODEL",
     "OPENROUTER_MODEL",
+    "ENABLE_OPENROUTER",
 ):
     value = secret(name)
     if value:
@@ -42,6 +44,16 @@ for name in (
 from cloud_history import CloudHistory, CloudHistoryError
 from personal_memory import suggest_memories, relevant_memories, is_memory_question, is_forget_request
 from about_merge_ai import PROJECT_CONTEXT, CREATOR_NAME, CREATED_FOR, PURPOSE, answer_project_question
+from kokoro_tts import KokoroError, start_audio, configured as kokoro_configured
+from listen_button import listen_button
+
+
+def tts_options():
+    return {
+        "service_url": secret("KOKORO_TTS_URL").strip(),
+        "api_key": secret("KOKORO_TTS_API_KEY").strip(),
+        "enabled": secret("KOKORO_ENABLED", "true").lower() == "true",
+    }
 
 try:
     from merge_ai import MergeAI, default_providers
@@ -309,6 +321,8 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_loaded = False
     st.session_state.ma_voice_reply = ""
     st.session_state.ma_voice_audio_b64 = ""
+    st.session_state.ma_listen_audio = {}
+    st.session_state.ma_voice_future = None
 
 
 def load_cloud():
@@ -698,7 +712,6 @@ with st.sidebar:
 
 # ===================== AI ENGINE =====================
 
-@st.cache_resource(show_spinner=False)
 def engine():
 
     if MergeAI is None:
@@ -861,7 +874,8 @@ def ask_ai(chat, question):
     )
 
     try:
-        result = engine().ask(
+        current_engine = engine()
+        result = current_engine.ask(
             prompt,
             fast=(
                 st.session_state.ma_mode
@@ -875,7 +889,7 @@ def ask_ai(chat, question):
         if "web_search" not in str(exc):
             raise
 
-        result = engine().ask(
+        result = current_engine.ask(
             prompt,
             fast=(
                 st.session_state.ma_mode
@@ -883,7 +897,8 @@ def ask_ai(chat, question):
             ),
         )
 
-    return extract(result)
+    answer, sources = extract(result)
+    return answer, sources or current_engine.last_report.get("sources", [])
 
 
 # ===================== CHAT DISPLAY =====================
@@ -946,6 +961,7 @@ for i, msg in enumerate(chat["messages"]):
         )
 
         st.markdown(content)
+        listen_button(content, key=str(chat["id"]) + "_" + str(i), **tts_options())
 
         sources = (
             msg.get("sources") or []
@@ -982,12 +998,18 @@ for i, msg in enumerate(chat["messages"]):
 
 st.caption("🎙️ LIVE VOICE")
 
-voice_event = None
-
-if voice_chat:
-
+@st.fragment(run_every=0.5 if st.session_state.get("ma_voice_future") else None)
+def render_live_voice():
+    future = st.session_state.get("ma_voice_future")
+    if future and future.done():
+        try:
+            st.session_state.ma_voice_audio_b64 = future.result()
+        except KokoroError:
+            st.session_state.ma_voice_audio_b64 = ""
+        st.session_state.ma_voice_future = None
+        st.rerun()  # Stop polling and deliver this reply's audio once.
     try:
-        voice_event = voice_chat(
+        event = voice_chat(
             reply=(
                 st.session_state.ma_voice_reply
             ),
@@ -1000,8 +1022,13 @@ if voice_chat:
             audio_b64=(
                 st.session_state.ma_voice_audio_b64
             ),
-            kokoro_available=False,
+            kokoro_available=kokoro_configured(tts_options()["service_url"], tts_options()["enabled"]),
+            conversation_id=str(chat["id"]),
+            audio_pending=bool(future),
         )
+        if event:
+            st.session_state.ma_pending_voice = event
+            st.rerun()
 
     except Exception:
 
@@ -1010,12 +1037,16 @@ if voice_chat:
             "Check voice_chat.py."
         )
 
+if voice_chat:
+    render_live_voice()
 else:
 
     st.caption(
         "Add voice_chat.py to enable "
         "the live voice orb."
     )
+
+voice_event = st.session_state.pop("ma_pending_voice", None)
 
 
 # ===================== INPUT =====================
@@ -1071,7 +1102,8 @@ if question and question.strip():
                 question
             )
 
-        except Exception:
+        except Exception as exc:
+            logging.error("Merge AI turn failed: error=%s", type(exc).__name__)
 
             answer = (
                 "I couldn't generate an answer. "
@@ -1135,10 +1167,15 @@ if question and question.strip():
         )
 
         st.session_state.ma_voice_reply_id = (
-            str(uuid.uuid4())
+            voice_event["id"]
         )
 
         st.session_state.ma_voice_audio_b64 = ""
+        st.session_state.ma_voice_future = None
+        if voice_event.get("voice_provider") == "kokoro":
+            st.session_state.ma_voice_future = start_audio(
+                answer, language=voice_event.get("language", "en-US"), **tts_options()
+            )
 
         st.session_state.ma_voice_failed_id = ""
 
@@ -1154,3 +1191,4 @@ st.markdown(
     '</div>',
     unsafe_allow_html=True,
 )
+
