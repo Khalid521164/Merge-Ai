@@ -52,9 +52,12 @@ except Exception as exc:
     ENGINE_ERROR = str(exc)
 
 try:
-    from voice_chat import voice_chat
-except Exception:
-    voice_chat = None
+    from gemini_live_voice import create_ephemeral_token, gemini_live_voice
+    GEMINI_LIVE_ERROR = None
+except Exception as exc:
+    create_ephemeral_token = None
+    gemini_live_voice = None
+    GEMINI_LIVE_ERROR = str(exc)
 
 
 # ===================== ACCOUNT =====================
@@ -254,11 +257,9 @@ defaults = {
     "ma_search": False,
     "ma_mode": "Fast",
     "ma_web": True,
-    "ma_voice_reply": "",
-    "ma_voice_reply_id": "",
-    "ma_voice_failed_id": "",
-    "ma_voice_audio_b64": "",
-    "ma_last_voice": "",
+    "ma_voice_screen": False,
+    "ma_gemini_token": "",
+    "ma_gemini_token_error": "",
     "ma_db_error": "",
 }
 
@@ -307,8 +308,9 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_auto_memory = False
     st.session_state.ma_auto_memory_notice = ""
     st.session_state.ma_loaded = False
-    st.session_state.ma_voice_reply = ""
-    st.session_state.ma_voice_audio_b64 = ""
+    st.session_state.ma_voice_screen = False
+    st.session_state.ma_gemini_token = ""
+    st.session_state.ma_gemini_token_error = ""
 
 
 def load_cloud():
@@ -436,7 +438,15 @@ with st.sidebar:
     # ================= NEW CHAT =================
 
     if st.button("✏️ New chat"):
+        st.session_state.ma_voice_screen = False
+        st.session_state.ma_gemini_token = ""
         start_chat()
+        st.rerun()
+
+    if st.button("🎙️ Full-screen Live voice", key="open_gemini_live_voice"):
+        st.session_state.ma_voice_screen = True
+        st.session_state.ma_gemini_token = ""
+        st.session_state.ma_gemini_token_error = ""
         st.rerun()
 
     # ================= SEARCH =================
@@ -886,6 +896,111 @@ def ask_ai(chat, question):
     return extract(result)
 
 
+# ===================== GEMINI LIVE VOICE SCREEN =====================
+
+if st.session_state.ma_voice_screen:
+    st.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"] {display:none!important}
+        [data-testid="stHeader"] {display:none!important}
+        .block-container {max-width:100%!important;padding:0!important;margin:0!important}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    voice_chat_record = active_chat()
+    voice_context = build_context(
+        voice_chat_record,
+        "Continue this existing conversation in a natural real-time voice session. "
+        "Use the previous messages and approved memories as context. "
+        "Do not claim to have access to tools unless they are available in this voice session.",
+    )
+
+    if gemini_live_voice is None or create_ephemeral_token is None:
+        st.error("Gemini Live voice module could not load: " + str(GEMINI_LIVE_ERROR))
+        if st.button("Back to chat"):
+            st.session_state.ma_voice_screen = False
+            st.rerun()
+        st.stop()
+
+    if not st.session_state.ma_gemini_token:
+        with st.spinner("Securing your Gemini Live session..."):
+            token, token_error = create_ephemeral_token(
+                secret("GEMINI_API_KEY"),
+                voice_context[:10000],
+            )
+        st.session_state.ma_gemini_token = token or ""
+        st.session_state.ma_gemini_token_error = token_error or ""
+
+    if st.session_state.ma_gemini_token:
+        voice_event = gemini_live_voice(
+            token=st.session_state.ma_gemini_token,
+            system_instruction=voice_context[:10000],
+        )
+
+        if isinstance(voice_event, dict):
+            if voice_event.get("type") == "exit":
+                st.session_state.ma_voice_screen = False
+                st.session_state.ma_gemini_token = ""
+                st.rerun()
+
+            elif voice_event.get("type") == "turn":
+                spoken_user = str(voice_event.get("user") or "").strip()
+                spoken_assistant = str(voice_event.get("assistant") or "").strip()
+                if spoken_user:
+                    voice_chat_record["messages"].append({
+                        "role": "user",
+                        "content": spoken_user,
+                    })
+                if spoken_assistant:
+                    voice_chat_record["messages"].append({
+                        "role": "assistant",
+                        "content": spoken_assistant,
+                        "sources": [],
+                    })
+                if spoken_user and voice_chat_record["title"] == "New chat":
+                    voice_chat_record["title"] = spoken_user[:60]
+                if spoken_user or spoken_assistant:
+                    persist(voice_chat_record)
+                    if user and db and not st.session_state.ma_db_error:
+                        previous = [m.get("content", "") for m in st.session_state.ma_memories]
+                        previous += st.session_state.ma_memory_suggestions
+                        for suggestion in suggest_memories(spoken_user, previous):
+                            if st.session_state.ma_auto_memory:
+                                if len(st.session_state.ma_memories) >= 50:
+                                    st.session_state.ma_auto_memory_notice = (
+                                        "Memory is full. Delete some saved memories to add more."
+                                    )
+                                    break
+                                try:
+                                    db.add_memory(suggestion)
+                                    st.session_state.ma_memories = db.list_memories()
+                                    st.session_state.ma_auto_memory_notice = (
+                                        "Saved a new memory automatically. You can delete it in My memory."
+                                    )
+                                except CloudHistoryError:
+                                    st.session_state.ma_auto_memory_notice = (
+                                        "Could not save memory to Supabase. Check your cloud connection."
+                                    )
+                                    break
+                            elif len(st.session_state.ma_memory_suggestions) < 6:
+                                st.session_state.ma_memory_suggestions.append(suggestion)
+                st.rerun()
+    else:
+        st.error(st.session_state.ma_gemini_token_error or "Could not start Gemini Live.")
+        if st.button("Try again", key="retry_gemini_live"):
+            st.session_state.ma_gemini_token = ""
+            st.rerun()
+        if st.button("Back to chat", key="back_gemini_live_error"):
+            st.session_state.ma_voice_screen = False
+            st.session_state.ma_gemini_token = ""
+            st.rerun()
+
+    st.stop()
+
+
 # ===================== CHAT DISPLAY =====================
 
 st.markdown(
@@ -978,80 +1093,11 @@ for i, msg in enumerate(chat["messages"]):
                         st.write(url)
 
 
-# ===================== LIVE VOICE =====================
-
-st.caption("🎙️ LIVE VOICE")
-
-voice_event = None
-
-if voice_chat:
-
-    try:
-        voice_event = voice_chat(
-            reply=(
-                st.session_state.ma_voice_reply
-            ),
-            reply_id=(
-                st.session_state.ma_voice_reply_id
-            ),
-            failed_id=(
-                st.session_state.ma_voice_failed_id
-            ),
-            audio_b64=(
-                st.session_state.ma_voice_audio_b64
-            ),
-            kokoro_available=False,
-        )
-
-    except Exception:
-
-        st.warning(
-            "Live Voice could not start. "
-            "Check voice_chat.py."
-        )
-
-else:
-
-    st.caption(
-        "Add voice_chat.py to enable "
-        "the live voice orb."
-    )
-
-
-# ===================== INPUT =====================
+# ===================== CHAT INPUT =====================
 
 question = st.chat_input(
     "Ask Merge AI anything…"
 )
-
-is_voice = False
-
-
-if isinstance(voice_event, dict):
-
-    spoken = str(
-        voice_event.get("text") or ""
-    ).strip()
-
-    event_id = str(
-        voice_event.get("request_id")
-        or voice_event.get("id")
-        or spoken
-    )
-
-    if (
-        not question
-        and spoken
-        and event_id
-        != st.session_state.ma_last_voice
-    ):
-
-        st.session_state.ma_last_voice = (
-            event_id
-        )
-
-        question = spoken
-        is_voice = True
 
 
 # ===================== RESPONSE =====================
@@ -1126,21 +1172,6 @@ if question and question.strip():
                     break
             elif len(st.session_state.ma_memory_suggestions) < 6:
                 st.session_state.ma_memory_suggestions.append(suggestion)
-
-    # Browser Live Voice response.
-    if is_voice:
-
-        st.session_state.ma_voice_reply = (
-            answer
-        )
-
-        st.session_state.ma_voice_reply_id = (
-            str(uuid.uuid4())
-        )
-
-        st.session_state.ma_voice_audio_b64 = ""
-
-        st.session_state.ma_voice_failed_id = ""
 
     st.rerun()
 
