@@ -926,7 +926,7 @@ if st.session_state.ma_voice_screen:
         st.stop()
 
     if not st.session_state.ma_gemini_token:
-        with st.spinner("Securing your Gemini Live session..."):
+        with st.spinner("Starting Gemini Live…"):
             token, token_error = create_ephemeral_token(
                 secret("GEMINI_API_KEY"),
                 voice_context[:10000],
