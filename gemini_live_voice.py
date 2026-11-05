@@ -22,40 +22,12 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         return None, "GEMINI_API_KEY is missing. Add it to Streamlit Secrets."
 
     now = datetime.now(timezone.utc)
-    # REST's AuthToken body uses the wire field bidiGenerateContentSetup.
-    # (liveConnectConstraints is the SDK config name, not the REST JSON field.)
-    # This locks the session config server-side; only the short-lived token is
-    # sent to the browser, never the system prompt or chat context.
-    live_setup = {
-        "model": MODEL,
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": VOICE_NAME}}
-            },
-        },
-        "systemInstruction": {
-            "parts": [{
-                "text": system_instruction or (
-                    "You are Merge AI, a warm, natural, friendly conversational assistant. "
-                    "Speak in a relaxed, expressive, human-sounding male voice. Use natural "
-                    "pacing, short conversational sentences, and respond in the language the user speaks."
-                )
-            }]
-        },
-        "inputAudioTranscription": {},
-        "outputAudioTranscription": {},
-        "realtimeInputConfig": {
-            "automaticActivityDetection": {"disabled": False},
-            "activityHandling": "START_OF_ACTIVITY_INTERRUPTS",
-        },
-        "sessionResumption": {},
-    }
+    # Mint a short-lived token only. The full Live API setup is sent as the
+    # first WebSocket message, which is the standard BidiGenerateContent flow.
     payload = {
         "uses": 1,
         "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
         "newSessionExpireTime": (now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
-        "bidiGenerateContentSetup": live_setup,
     }
 
     try:
@@ -70,8 +42,7 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         )
         response.raise_for_status()
         data = response.json()
-        auth_token = data.get("authToken") or data.get("auth_token") or {}
-        token = data.get("name") or auth_token.get("name")
+        token = data.get("name")
         if not isinstance(token, str) or not token:
             return None, "Google did not return a Live API session token."
         return token, None
@@ -150,7 +121,7 @@ export default function(component) {
   const state = window.__mergeGeminiLive || (window.__mergeGeminiLive = {
     ws:null,stream:null,ctx:null,source:null,processor:null,muted:false,connected:false,
     starting:false,playAt:0,playing:new Set(),userText:"",assistantText:"",
-    lastEvent:"",token:"",closed:false
+    lastEvent:"",token:"",closed:false,connectTimer:null
   });
   const setStatus=(text,mode)=>{
     status.textContent=text;
@@ -231,6 +202,7 @@ export default function(component) {
     let message;
     try{message=JSON.parse(event.data)}catch(e){return;}
     if(message.setupComplete){
+      if(state.connectTimer){clearTimeout(state.connectTimer);state.connectTimer=null;}
       state.connected=true;state.starting=false;startBtn.disabled=true;endBtn.disabled=false;muteBtn.disabled=false;
       setStatus("Listening — speak naturally","listening");
       startMicrophone().catch((err)=>{setStatus("Microphone error: "+(err.message||"permission denied"),"error");closeAll();});
@@ -275,18 +247,36 @@ export default function(component) {
     const url="wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token="+encodeURIComponent(data.token);
     const ws=new WebSocket(url);state.ws=ws;
     ws.onopen=()=>{
-      // The complete setup is bound to the ephemeral token on the server.
-      // Send the required model identifier; Google's token config supplies the
-      // authoritative generation, voice, transcription, and prompt settings.
-      ws.send(JSON.stringify({setup:{model:"models/gemini-3.8-live"}}));
+      const setup={
+        model:"models/gemini-3.8-live",
+        generationConfig:{
+          responseModalities:["AUDIO"],
+          speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Puck"}}}
+        },
+        systemInstruction:{parts:[{text:String(data.systemInstruction||"You are Merge AI, a warm, natural conversational assistant. Speak clearly and naturally in the language the user uses.")}]},
+        inputAudioTranscription:{},
+        outputAudioTranscription:{},
+        realtimeInputConfig:{automaticActivityDetection:{disabled:false},activityHandling:"START_OF_ACTIVITY_INTERRUPTS"},
+        sessionResumption:{}
+      };
+      ws.send(JSON.stringify({setup:setup}));
+      state.connectTimer=setTimeout(()=>{
+        if(state.starting&&!state.connected){
+          setStatus("Gemini did not finish connecting. Tap Try again to reconnect.","error");
+          closeAll();
+        }
+      },15000);
     };
     ws.onmessage=onMessage;
-    ws.onerror=()=>{setStatus("Connection error. Check Gemini API access and try again.","error");};
+    ws.onerror=()=>{
+      setStatus("Gemini WebSocket connection error. Check the network and try again.","error");
+    };
     ws.onclose=(event)=>{
+      if(state.connectTimer){clearTimeout(state.connectTimer);state.connectTimer=null;}
       state.connected=false;state.starting=false;closeMic();stopPlayback();
       if(state.ctx){try{state.ctx.close()}catch(e){}state.ctx=null;}
       startBtn.disabled=false;endBtn.disabled=true;muteBtn.disabled=true;
-      if(!state.closed)setStatus(event.reason||"Gemini connection closed. You can reconnect.","error");
+      if(!state.closed)setStatus(event.reason||("Gemini connection closed (code "+event.code+"). You can reconnect."),"error");
     };
   };
   startBtn.onclick=()=>connect();
@@ -323,6 +313,7 @@ def gemini_live_voice(*, token: str, system_instruction: str, key: str = "merge_
         key=key,
         data={
             "token": token,
+            "systemInstruction": system_instruction,
         },
         on_turn_change=lambda: None,
         on_exit_change=lambda: None,
