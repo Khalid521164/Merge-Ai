@@ -146,7 +146,8 @@ export default function(component) {
     assistantText: "",
     token: "",
     closed: false,
-    connectTimer: null
+    connectTimer: null,
+    micRequestId: 0
   };
   const { setTriggerValue } = component;
   const state = window.__mergeGeminiLive ||
@@ -169,6 +170,8 @@ export default function(component) {
   };
 
   const closeMic = () => {
+    // Invalidate any permission request that is still pending.
+    state.micRequestId = (state.micRequestId || 0) + 1;
     if (state.processor) {
       try { state.processor.disconnect(); } catch (error) {}
       state.processor.onaudioprocess = null;
@@ -288,17 +291,23 @@ export default function(component) {
   // Call this directly from the user's click, before opening the socket.
   // This lets iOS/Safari request mic permission and unlock AudioContext early.
   const startMicrophone = async () => {
+    const requestId = (state.micRequestId || 0) + 1;
+    state.micRequestId = requestId;
+
     if (!state.ctx) {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextClass) throw new Error("This browser does not support audio.");
       state.ctx = new AudioContextClass();
     }
 
-    await state.ctx.resume();
+    if (state.stream && state.source && state.processor) {
+      await state.ctx.resume();
+      return;
+    }
 
-    if (state.stream && state.source && state.processor) return;
-
-    state.stream = await navigator.mediaDevices.getUserMedia({
+    // Request the mic synchronously from the Start/Unmute click, before the
+    // first await, so iOS Safari can show its permission prompt reliably.
+    const streamPromise = navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
         echoCancellation: true,
@@ -306,7 +315,16 @@ export default function(component) {
         autoGainControl: true
       }
     });
+    const resumePromise = state.ctx.resume();
+    const [stream] = await Promise.all([streamPromise, resumePromise]);
 
+    // A timeout, mute, or End action may have happened while permission was open.
+    if (state.closed || state.micRequestId !== requestId) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+
+    state.stream = stream;
     state.source = state.ctx.createMediaStreamSource(state.stream);
     // 2048 frames at 48 kHz is about 43 ms per packet, reducing input latency.
     state.processor = state.ctx.createScriptProcessor(2048, 1, 1);
@@ -462,20 +480,33 @@ export default function(component) {
     state.closed = false;
     state.token = data.token;
     startBtn.disabled = true;
-    setStatus("Starting Gemini Live…", "thinking");
+    setStatus("Allow microphone access to start…", "thinking");
 
-    // Request microphone permission immediately from the button press.
+    // A permission prompt can remain pending indefinitely in some browsers.
+    // Bound that wait and invalidate any late getUserMedia result.
+    let microphoneTimer = null;
     try {
-      await startMicrophone();
+      const microphoneReady = startMicrophone();
+      const permissionTimeout = new Promise((_, reject) => {
+        microphoneTimer = setTimeout(() => {
+          reject(new Error(
+            "Microphone permission is still pending. Allow microphone access in your browser, then tap Start talking again."
+          ));
+        }, 15000);
+      });
+      await Promise.race([microphoneReady, permissionTimeout]);
     } catch (error) {
       closeAll(
-        "Microphone access failed: " + (error.message || "permission denied"),
+        "Microphone setup failed: " + (error.message || "permission denied"),
         "error"
       );
       return;
+    } finally {
+      if (microphoneTimer) clearTimeout(microphoneTimer);
     }
 
     if (state.closed) return;
+    setStatus("Opening Gemini Live…", "thinking");
 
     const url =
       "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=" +
