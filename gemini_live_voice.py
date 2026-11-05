@@ -24,17 +24,18 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         return None, "GEMINI_API_KEY is missing. Add it to Streamlit Secrets."
 
     now = datetime.now(timezone.utc)
-    # Mint a short-lived token only. The full Live API setup is sent as the
-    # first WebSocket message, which is the standard BidiGenerateContent flow.
-    # Bind this short-lived token to the exact Live model and session
-    # configuration used by the browser. Google documents this constrained
-    # token flow for client-to-server WebSocket connections.
-    live_config = {
-        "responseModalities": ["AUDIO"],
-        "speechConfig": {
-            "voiceConfig": {
-                "prebuiltVoiceConfig": {"voiceName": VOICE_NAME}
-            }
+    # The current v1beta AuthToken schema accepts a complete
+    # BidiGenerateContentSetup under bidiGenerateContentSetup.
+    # It does not accept the older liveConnectConstraints property.
+    bidi_setup = {
+        "model": MODEL,
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {"voiceName": VOICE_NAME}
+                }
+            },
         },
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
@@ -45,19 +46,15 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         "sessionResumption": {},
     }
     if system_instruction:
-        live_config["systemInstruction"] = {
+        bidi_setup["systemInstruction"] = {
             "parts": [{"text": system_instruction}]
         }
 
     payload = {
-        # Allow a small number of retries while keeping the token short-lived.
         "uses": 3,
         "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
         "newSessionExpireTime": (now + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
-        "liveConnectConstraints": {
-            "model": MODEL,
-            "config": live_config,
-        },
+        "bidiGenerateContentSetup": bidi_setup,
     }
 
     try:
