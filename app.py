@@ -260,12 +260,21 @@ defaults = {
     "ma_voice_screen": False,
     "ma_gemini_token": "",
     "ma_gemini_token_error": "",
+    "ma_gemini_token_version": "",
     "ma_db_error": "",
 }
 
 for key, value in defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
+
+# Rotate any token minted by the previous, unconstrained Live API flow.
+# Existing Streamlit sessions survive app deployments, so changing the
+# token version forces one fresh token after this release.
+if st.session_state.ma_gemini_token_version != "constrained-live-v1":
+    st.session_state.ma_gemini_token = ""
+    st.session_state.ma_gemini_token_error = ""
+    st.session_state.ma_gemini_token_version = "constrained-live-v1"
 
 
 # ===================== SUPABASE =====================
