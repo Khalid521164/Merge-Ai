@@ -12,7 +12,7 @@ import streamlit as st
 
 
 MODEL = "models/gemini-3.8-live"
-VOICE_NAME = "Charon"
+VOICE_NAME = "Puck"
 TOKEN_URL = "https://generativelanguage.googleapis.com/v1beta/auth_tokens"
 
 
@@ -25,7 +25,7 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
     live_config = {
         "responseModalities": ["AUDIO"],
         "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": VOICE_NAME}}},
-        "systemInstruction": {"parts": [{"text": system_instruction or "You are Merge AI, a natural, friendly conversational assistant. Speak concisely and naturally, and respond in the language the user uses."}]},
+        "systemInstruction": {"parts": [{"text": system_instruction or "You are Merge AI, a warm, natural, friendly conversational assistant. Speak in a relaxed, expressive, human-sounding male voice. Use natural pacing, short conversational sentences, and respond in the language the user speaks."}]},
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
         "realtimeInputConfig": {
@@ -263,7 +263,7 @@ export default function(component) {
       const setup={
         model:"models/gemini-3.8-live",
         responseModalities:["AUDIO"],
-        speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Charon"}}},
+        speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Puck"}}},
         systemInstruction:{parts:[{text:String(data.systemInstruction||"You are Merge AI, a helpful conversational voice assistant. Reply naturally and concisely in the language the user speaks.")}]},
         inputAudioTranscription:{},
         outputAudioTranscription:{},
