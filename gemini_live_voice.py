@@ -17,7 +17,7 @@ VOICE_NAME = "Charon"
 TOKEN_URL = "https://generativelanguage.googleapis.com/v1beta/auth_tokens"
 
 
-def create_ephemeral_token(api_key: str) -> tuple[str | None, str | None]:
+def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[str | None, str | None]:
     """Create a one-use, short-lived Live API token without exposing the API key."""
     if not api_key:
         return None, "GEMINI_API_KEY is missing. Add it to Streamlit Secrets."
@@ -26,7 +26,7 @@ def create_ephemeral_token(api_key: str) -> tuple[str | None, str | None]:
     live_config = {
         "responseModalities": ["AUDIO"],
         "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": VOICE_NAME}}},
-        "systemInstruction": {"parts": [{"text": "You are Merge AI, a natural, friendly conversational assistant. Continue the user's existing conversation context. Speak concisely and naturally, and respond in the language the user uses."}]},
+        "systemInstruction": {"parts": [{"text": system_instruction or "You are Merge AI, a natural, friendly conversational assistant. Speak concisely and naturally, and respond in the language the user uses."}]},
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
         "realtimeInputConfig": {
