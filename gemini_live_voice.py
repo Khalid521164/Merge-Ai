@@ -22,9 +22,10 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         return None, "GEMINI_API_KEY is missing. Add it to Streamlit Secrets."
 
     now = datetime.now(timezone.utc)
-    # Current CreateAuthTokenRequest schema wraps all token settings in
-    # authToken. The full Live setup is bound server-side so the browser only
-    # receives the short-lived token, never the system prompt or chat context.
+    # REST's AuthToken body uses the wire field bidiGenerateContentSetup.
+    # (liveConnectConstraints is the SDK config name, not the REST JSON field.)
+    # This locks the session config server-side; only the short-lived token is
+    # sent to the browser, never the system prompt or chat context.
     live_setup = {
         "model": MODEL,
         "generationConfig": {
@@ -51,12 +52,10 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         "sessionResumption": {},
     }
     payload = {
-        "authToken": {
-            "uses": 1,
-            "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
-            "newSessionExpireTime": (now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
-            "bidiGenerateContentSetup": live_setup,
-        }
+        "uses": 1,
+        "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
+        "newSessionExpireTime": (now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
+        "bidiGenerateContentSetup": live_setup,
     }
 
     try:
