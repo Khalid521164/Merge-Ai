@@ -1,7 +1,9 @@
 """Gemini Live API full-screen voice experience for Merge AI.
 
-The permanent Gemini API key stays server-side. The browser receives only a
-single-use ephemeral token and connects directly to Gemini over WebSocket.
+The permanent Gemini API key remains on the server. The browser receives a
+short-lived, limited-use token and connects directly to Gemini over WebSocket.
+The microphone is prepared from the user's Start talking click so mobile
+browsers can unlock audio before the Live handshake completes.
 """
 from __future__ import annotations
 
@@ -25,9 +27,11 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
     # Mint a short-lived token only. The full Live API setup is sent as the
     # first WebSocket message, which is the standard BidiGenerateContent flow.
     payload = {
-        "uses": 1,
+        # Allow a small number of retries if a mobile network drops the first
+        # handshake. The token remains short-lived and is never the API key.
+        "uses": 3,
         "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
-        "newSessionExpireTime": (now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
+        "newSessionExpireTime": (now + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
     }
 
     try:
@@ -115,188 +119,490 @@ JS = r'''
 export default function(component) {
   const root = component.parentElement;
   const data = component.data || {};
-  const q = (s) => root.querySelector(s);
-  const card=q(".gl-card"), startBtn=q(".gl-start"), muteBtn=q(".gl-mute"), endBtn=q(".gl-end"), exitBtn=q(".gl-exit");
-  const status=q(".gl-status"), userEl=q(".gl-user"), assistantEl=q(".gl-assistant");
-  const state = window.__mergeGeminiLive || (window.__mergeGeminiLive = {
-    ws:null,stream:null,ctx:null,source:null,processor:null,muted:false,connected:false,
-    starting:false,playAt:0,playing:new Set(),userText:"",assistantText:"",
-    lastEvent:"",token:"",closed:false,connectTimer:null
+  const q = (selector) => root.querySelector(selector);
+  const card = q(".gl-card");
+  const startBtn = q(".gl-start");
+  const muteBtn = q(".gl-mute");
+  const endBtn = q(".gl-end");
+  const exitBtn = q(".gl-exit");
+  const status = q(".gl-status");
+  const userEl = q(".gl-user");
+  const assistantEl = q(".gl-assistant");
+
+  if (!card || !startBtn || !muteBtn || !endBtn || !exitBtn || !status) return;
+
+  const defaults = {
+    ws: null,
+    stream: null,
+    ctx: null,
+    source: null,
+    processor: null,
+    muted: false,
+    connected: false,
+    starting: false,
+    playAt: 0,
+    playing: new Set(),
+    userText: "",
+    assistantText: "",
+    token: "",
+    closed: false,
+    connectTimer: null
+  };
+  const state = window.__mergeGeminiLive ||
+    (window.__mergeGeminiLive = defaults);
+  Object.keys(defaults).forEach((key) => {
+    if (!(key in state)) state[key] = defaults[key];
   });
-  const setStatus=(text,mode)=>{
-    status.textContent=text;
-    card.dataset.state=mode||"idle";
+
+  const setStatus = (message, mode) => {
+    status.textContent = message;
+    card.dataset.state = mode || "idle";
   };
-  const stopPlayback=()=>{
-    state.playing.forEach((node)=>{try{node.stop()}catch(e){}});
+
+  const stopPlayback = () => {
+    state.playing.forEach((node) => {
+      try { node.stop(); } catch (error) {}
+    });
     state.playing.clear();
-    state.playAt=state.ctx?state.ctx.currentTime:0;
+    state.playAt = state.ctx ? state.ctx.currentTime : 0;
   };
-  const closeMic=()=>{
-    if(state.processor){try{state.processor.disconnect()}catch(e){}state.processor.onaudioprocess=null;state.processor=null;}
-    if(state.source){try{state.source.disconnect()}catch(e){}state.source=null;}
-    if(state.stream){state.stream.getTracks().forEach(t=>t.stop());state.stream=null;}
+
+  const closeMic = () => {
+    if (state.processor) {
+      try { state.processor.disconnect(); } catch (error) {}
+      state.processor.onaudioprocess = null;
+      state.processor = null;
+    }
+    if (state.source) {
+      try { state.source.disconnect(); } catch (error) {}
+      state.source = null;
+    }
+    if (state.stream) {
+      state.stream.getTracks().forEach((track) => track.stop());
+      state.stream = null;
+    }
   };
-  const closeAll=()=>{
-    state.closed=true;state.connected=false;state.starting=false;
-    closeMic();stopPlayback();
-    if(state.ws){try{state.ws.close(1000,"User ended voice session")}catch(e){}state.ws=null;}
-    if(state.ctx){try{state.ctx.close()}catch(e){}state.ctx=null;}
-    state.muted=false;muteBtn.disabled=true;endBtn.disabled=true;startBtn.disabled=false;
-    startBtn.querySelector("span").textContent="Start talking";
-    muteBtn.querySelector("small").textContent="Mute";
-    setStatus("Voice session ended","idle");
+
+  const closeAll = (message, mode) => {
+    state.closed = true;
+    state.connected = false;
+    state.starting = false;
+
+    if (state.connectTimer) {
+      clearTimeout(state.connectTimer);
+      state.connectTimer = null;
+    }
+
+    closeMic();
+    stopPlayback();
+
+    const socket = state.ws;
+    state.ws = null;
+    if (socket && socket.readyState < WebSocket.CLOSING) {
+      try { socket.close(1000, "Voice session ended"); } catch (error) {}
+    }
+
+    if (state.ctx) {
+      try { state.ctx.close(); } catch (error) {}
+      state.ctx = null;
+    }
+
+    state.muted = false;
+    muteBtn.disabled = true;
+    endBtn.disabled = true;
+    startBtn.disabled = false;
+    startBtn.querySelector("span").textContent = "Start talking";
+    muteBtn.querySelector("small").textContent = "Mute";
+    setStatus(message || "Voice session ended", mode || "idle");
   };
-  const floatToPcm16=(input,fromRate,toRate)=>{
-    const ratio=fromRate/toRate;
-    const length=Math.floor(input.length/ratio);
-    const pcm=new Int16Array(length);
-    for(let i=0;i<length;i++){
-      const start=Math.floor(i*ratio),end=Math.min(Math.floor((i+1)*ratio),input.length);
-      let sum=0,count=0;
-      for(let j=start;j<end;j++){sum+=input[j];count++;}
-      let sample=count?sum/count:0;
-      sample=Math.max(-1,Math.min(1,sample));
-      pcm[i]=sample<0?sample*32768:sample*32767;
+
+  const floatToPcm16 = (input, fromRate, toRate) => {
+    const ratio = fromRate / toRate;
+    const length = Math.floor(input.length / ratio);
+    const pcm = new Int16Array(length);
+
+    for (let i = 0; i < length; i++) {
+      const first = Math.floor(i * ratio);
+      const last = Math.min(Math.floor((i + 1) * ratio), input.length);
+      let sum = 0;
+      let count = 0;
+
+      for (let j = first; j < last; j++) {
+        sum += input[j];
+        count++;
+      }
+
+      let sample = count ? sum / count : 0;
+      sample = Math.max(-1, Math.min(1, sample));
+      pcm[i] = sample < 0 ? sample * 32768 : sample * 32767;
     }
     return pcm;
   };
-  const pcmToBase64=(pcm)=>{
-    const bytes=new Uint8Array(pcm.buffer);
-    let binary="";
-    const step=0x8000;
-    for(let i=0;i<bytes.length;i+=step)binary+=String.fromCharCode.apply(null,bytes.subarray(i,Math.min(i+step,bytes.length)));
+
+  const pcmToBase64 = (pcm) => {
+    const bytes = new Uint8Array(pcm.buffer);
+    let binary = "";
+    const step = 0x8000;
+
+    for (let i = 0; i < bytes.length; i += step) {
+      binary += String.fromCharCode.apply(
+        null,
+        bytes.subarray(i, Math.min(i + step, bytes.length))
+      );
+    }
     return btoa(binary);
   };
-  const playPcm=(base64)=>{
-    if(!state.ctx)return;
-    const binary=atob(base64),samples=new Int16Array(Math.floor(binary.length/2));
-    for(let i=0;i<samples.length;i++)samples[i]=(binary.charCodeAt(i*2)&255)|(binary.charCodeAt(i*2+1)<<8);
-    const buffer=state.ctx.createBuffer(1,samples.length,24000);
-    const channel=buffer.getChannelData(0);
-    for(let i=0;i<samples.length;i++)channel[i]=samples[i]/32768;
-    const node=state.ctx.createBufferSource();node.buffer=buffer;node.connect(state.ctx.destination);
-    const start=Math.max(state.ctx.currentTime+0.025,state.playAt);
-    state.playAt=start+buffer.duration;state.playing.add(node);
-    node.onended=()=>state.playing.delete(node);
+
+  const playPcm = (base64) => {
+    if (!state.ctx) return;
+
+    const binary = atob(base64);
+    const samples = new Int16Array(Math.floor(binary.length / 2));
+
+    for (let i = 0; i < samples.length; i++) {
+      samples[i] =
+        (binary.charCodeAt(i * 2) & 255) |
+        (binary.charCodeAt(i * 2 + 1) << 8);
+    }
+
+    const buffer = state.ctx.createBuffer(1, samples.length, 24000);
+    const channel = buffer.getChannelData(0);
+
+    for (let i = 0; i < samples.length; i++) {
+      channel[i] = samples[i] / 32768;
+    }
+
+    const node = state.ctx.createBufferSource();
+    node.buffer = buffer;
+    node.connect(state.ctx.destination);
+
+    const start = Math.max(state.ctx.currentTime + 0.025, state.playAt);
+    state.playAt = start + buffer.duration;
+    state.playing.add(node);
+    node.onended = () => state.playing.delete(node);
     node.start(start);
-    card.dataset.state="speaking";
+    card.dataset.state = "speaking";
   };
-  const startMicrophone=async()=>{
-    state.stream=await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-    state.ctx=new (window.AudioContext||window.webkitAudioContext)();
+
+  // Call this directly from the user's click, before opening the socket.
+  // This lets iOS/Safari request mic permission and unlock AudioContext early.
+  const startMicrophone = async () => {
+    if (!state.ctx) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) throw new Error("This browser does not support audio.");
+      state.ctx = new AudioContextClass();
+    }
+
     await state.ctx.resume();
-    state.source=state.ctx.createMediaStreamSource(state.stream);
-    state.processor=state.ctx.createScriptProcessor(4096,1,1);
-    state.processor.onaudioprocess=(event)=>{
+
+    if (state.stream && state.source && state.processor) return;
+
+    state.stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+
+    state.source = state.ctx.createMediaStreamSource(state.stream);
+    state.processor = state.ctx.createScriptProcessor(4096, 1, 1);
+
+    state.processor.onaudioprocess = (event) => {
       event.outputBuffer.getChannelData(0).fill(0);
-      if(!state.connected||state.muted||!state.ws||state.ws.readyState!==WebSocket.OPEN)return;
-      const pcm=floatToPcm16(event.inputBuffer.getChannelData(0),state.ctx.sampleRate,16000);
-      if(!pcm.length)return;
-      state.ws.send(JSON.stringify({realtimeInput:{audio:{mimeType:"audio/pcm;rate=16000",data:pcmToBase64(pcm)}}}));
+
+      if (
+        !state.connected ||
+        state.muted ||
+        !state.ws ||
+        state.ws.readyState !== WebSocket.OPEN
+      ) return;
+
+      const pcm = floatToPcm16(
+        event.inputBuffer.getChannelData(0),
+        state.ctx.sampleRate,
+        16000
+      );
+      if (!pcm.length) return;
+
+      try {
+        state.ws.send(JSON.stringify({
+          realtimeInput: {
+            audio: {
+              mimeType: "audio/pcm;rate=16000",
+              data: pcmToBase64(pcm)
+            }
+          }
+        }));
+      } catch (error) {
+        closeAll("Audio could not be sent to Gemini: " + error.message, "error");
+      }
     };
+
     state.source.connect(state.processor);
     state.processor.connect(state.ctx.destination);
   };
-  const onMessage=(event)=>{
+
+  const onMessage = (event) => {
     let message;
-    try{message=JSON.parse(event.data)}catch(e){return;}
-    if(message.setupComplete){
-      if(state.connectTimer){clearTimeout(state.connectTimer);state.connectTimer=null;}
-      state.connected=true;state.starting=false;startBtn.disabled=true;endBtn.disabled=false;muteBtn.disabled=false;
-      setStatus("Listening — speak naturally","listening");
-      startMicrophone().catch((err)=>{setStatus("Microphone error: "+(err.message||"permission denied"),"error");closeAll();});
+    try {
+      message = JSON.parse(event.data);
+    } catch (error) {
       return;
     }
-    if(message.error){
-      const msg=message.error.message||"Gemini Live returned an error.";
-      setStatus(msg,"error");closeAll();return;
+
+    if (message.setupComplete) {
+      if (state.connectTimer) {
+        clearTimeout(state.connectTimer);
+        state.connectTimer = null;
+      }
+
+      state.connected = true;
+      state.starting = false;
+      startBtn.disabled = true;
+      endBtn.disabled = false;
+      muteBtn.disabled = false;
+      setStatus("Listening — speak naturally", "listening");
+      return;
     }
-    const server=message.serverContent||{};
-    if(server.interrupted){stopPlayback();setStatus("Listening — you can interrupt anytime","listening");}
-    if(server.inputTranscription&&server.inputTranscription.text){
-      state.userText+=server.inputTranscription.text;
-      userEl.textContent=state.userText;
+
+    if (message.error) {
+      const detail = message.error.message || "Gemini Live returned an error.";
+      closeAll(detail, "error");
+      return;
     }
-    if(server.outputTranscription&&server.outputTranscription.text){
-      state.assistantText+=server.outputTranscription.text;
-      assistantEl.textContent=state.assistantText;
+
+    const server = message.serverContent || {};
+
+    if (server.interrupted) {
+      stopPlayback();
+      setStatus("Listening — you can interrupt anytime", "listening");
     }
-    const parts=(server.modelTurn&&server.modelTurn.parts)||[];
-    parts.forEach((part)=>{
-      if(part.inlineData&&part.inlineData.data&&String(part.inlineData.mimeType||"").includes("audio/pcm")){
+
+    if (server.inputTranscription && server.inputTranscription.text) {
+      state.userText += server.inputTranscription.text;
+      userEl.textContent = state.userText;
+    }
+
+    if (server.outputTranscription && server.outputTranscription.text) {
+      state.assistantText += server.outputTranscription.text;
+      assistantEl.textContent = state.assistantText;
+    }
+
+    const parts = (server.modelTurn && server.modelTurn.parts) || [];
+    parts.forEach((part) => {
+      if (
+        part.inlineData &&
+        part.inlineData.data &&
+        String(part.inlineData.mimeType || "").includes("audio/pcm")
+      ) {
         playPcm(part.inlineData.data);
       }
     });
-    if(server.turnComplete){
-      const user=state.userText.trim(),assistant=state.assistantText.trim();
-      if(user||assistant){
-        const id=Date.now().toString()+"-"+Math.random().toString(36).slice(2);
-        component.setTriggerValue("turn",{id:id,user:user,assistant:assistant});
+
+    if (server.turnComplete) {
+      const userText = state.userText.trim();
+      const assistantText = state.assistantText.trim();
+
+      if (userText || assistantText) {
+        const id = Date.now().toString() + "-" +
+          Math.random().toString(36).slice(2);
+        component.setTriggerValue("turn", {
+          id: id,
+          user: userText,
+          assistant: assistantText
+        });
       }
-      state.userText="";state.assistantText="";
-      if(state.connected)setStatus("Listening — speak naturally","listening");
+
+      state.userText = "";
+      state.assistantText = "";
+      if (state.connected) setStatus("Listening — speak naturally", "listening");
     }
   };
-  const connect=async()=>{
-    if(state.starting||state.connected)return;
-    if(!data.token){setStatus("Missing Gemini session token. Reload and try again.","error");return;}
-    if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){setStatus("Microphone access requires a supported browser and HTTPS.","error");return;}
-    state.starting=true;state.closed=false;state.token=data.token;
-    startBtn.disabled=true;setStatus("Starting Gemini Live…","thinking");
-    const url="wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token="+encodeURIComponent(data.token);
-    const ws=new WebSocket(url);state.ws=ws;
-    // Timeout covers both the WebSocket handshake and Gemini's setup response.
-    state.connectTimer=setTimeout(()=>{
-      if(state.starting&&!state.connected){
-        closeAll();
-        setStatus("Gemini connection timed out. Tap Start talking to try again.","error");
+
+  const connect = async () => {
+    if (state.starting || state.connected) return;
+
+    if (!data.token) {
+      setStatus("Gemini token is missing. Reload this page and try again.", "error");
+      return;
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus("Microphone access requires a supported browser and HTTPS.", "error");
+      return;
+    }
+
+    state.starting = true;
+    state.closed = false;
+    state.token = data.token;
+    startBtn.disabled = true;
+    setStatus("Starting Gemini Live…", "thinking");
+
+    // Request microphone permission immediately from the button press.
+    try {
+      await startMicrophone();
+    } catch (error) {
+      closeAll(
+        "Microphone access failed: " + (error.message || "permission denied"),
+        "error"
+      );
+      return;
+    }
+
+    if (state.closed) return;
+
+    const url =
+      "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=" +
+      encodeURIComponent(state.token);
+
+    let socket;
+    try {
+      socket = new WebSocket(url);
+    } catch (error) {
+      closeAll("Could not open Gemini Live: " + error.message, "error");
+      return;
+    }
+
+    state.ws = socket;
+
+    state.connectTimer = setTimeout(() => {
+      if (state.starting && !state.connected) {
+        closeAll(
+          "Gemini did not respond within 10 seconds. Check the connection and tap Start talking to retry.",
+          "error"
+        );
       }
-    },10000);
-    ws.onopen=()=>{
-      const setup={
-        model:"models/gemini-3.8-live",
-        generationConfig:{
-          responseModalities:["AUDIO"],
-          speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Puck"}}}
+    }, 10000);
+
+    socket.onopen = () => {
+      if (state.closed) {
+        try { socket.close(); } catch (error) {}
+        return;
+      }
+
+      const setup = {
+        model: "models/gemini-3.8-live",
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: "Puck" }
+            }
+          }
         },
-        systemInstruction:{parts:[{text:String(data.systemInstruction||"You are Merge AI, a warm, natural conversational assistant. Speak clearly and naturally in the language the user uses.")}]},
-        inputAudioTranscription:{},
-        outputAudioTranscription:{},
-        realtimeInputConfig:{automaticActivityDetection:{disabled:false},activityHandling:"START_OF_ACTIVITY_INTERRUPTS"},
-        sessionResumption:{}
+        systemInstruction: {
+          parts: [{
+            text: String(
+              data.systemInstruction ||
+              "You are Merge AI, a warm, natural conversational assistant. Speak clearly and naturally in the language the user uses."
+            )
+          }]
+        },
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+        realtimeInputConfig: {
+          automaticActivityDetection: { disabled: false },
+          activityHandling: "START_OF_ACTIVITY_INTERRUPTS"
+        },
+        sessionResumption: {}
       };
-      ws.send(JSON.stringify({setup:setup}));
+
+      try {
+        socket.send(JSON.stringify({ setup: setup }));
+      } catch (error) {
+        closeAll("Gemini setup could not be sent: " + error.message, "error");
+      }
     };
-    ws.onmessage=onMessage;
-    ws.onerror=()=>{
-      setStatus("Gemini WebSocket connection error. Check the network and try again.","error");
+
+    socket.onmessage = onMessage;
+
+    socket.onerror = () => {
+      if (!state.closed) {
+        closeAll(
+          "Gemini could not open the Live connection. Check the network and retry.",
+          "error"
+        );
+      }
     };
-    ws.onclose=(event)=>{
-      if(state.connectTimer){clearTimeout(state.connectTimer);state.connectTimer=null;}
-      state.connected=false;state.starting=false;closeMic();stopPlayback();
-      if(state.ctx){try{state.ctx.close()}catch(e){}state.ctx=null;}
-      startBtn.disabled=false;endBtn.disabled=true;muteBtn.disabled=true;
-      if(!state.closed)setStatus(event.reason||("Gemini connection closed (code "+event.code+"). You can reconnect."),"error");
+
+    socket.onclose = (event) => {
+      if (state.connectTimer) {
+        clearTimeout(state.connectTimer);
+        state.connectTimer = null;
+      }
+
+      const wasClosed = state.closed;
+      state.ws = null;
+      state.connected = false;
+      state.starting = false;
+      closeMic();
+      stopPlayback();
+
+      if (state.ctx) {
+        try { state.ctx.close(); } catch (error) {}
+        state.ctx = null;
+      }
+
+      state.muted = false;
+      startBtn.disabled = false;
+      endBtn.disabled = true;
+      muteBtn.disabled = true;
+      startBtn.querySelector("span").textContent = "Start talking";
+      muteBtn.querySelector("small").textContent = "Mute";
+
+      if (!wasClosed) {
+        state.closed = true;
+        const reason = event.reason ||
+          ("Gemini connection closed (code " + event.code + ").");
+        setStatus(reason + " Tap Start talking to retry.", "error");
+      }
     };
   };
-  startBtn.onclick=()=>connect();
-  muteBtn.onclick=()=>{
-    if(!state.connected)return;
-    state.muted=!state.muted;
-    if(state.muted)closeMic();
-    else startMicrophone().catch((e)=>setStatus("Could not restart microphone: "+e.message,"error"));
-    muteBtn.querySelector("small").textContent=state.muted?"Unmute":"Mute";
-    muteBtn.setAttribute("aria-pressed",String(state.muted));
-    if(!state.muted)setStatus("Listening — speak naturally","listening");
-    else setStatus("Microphone muted","idle");
+
+  startBtn.onclick = () => connect();
+
+  muteBtn.onclick = async () => {
+    if (!state.connected) return;
+
+    state.muted = !state.muted;
+
+    if (state.muted) {
+      closeMic();
+      muteBtn.querySelector("small").textContent = "Unmute";
+      muteBtn.setAttribute("aria-pressed", "true");
+      setStatus("Microphone muted", "idle");
+    } else {
+      try {
+        await startMicrophone();
+        muteBtn.querySelector("small").textContent = "Mute";
+        muteBtn.setAttribute("aria-pressed", "false");
+        setStatus("Listening — speak naturally", "listening");
+      } catch (error) {
+        closeAll(
+          "Could not restart the microphone: " + error.message,
+          "error"
+        );
+      }
+    }
   };
-  endBtn.onclick=closeAll;
-  exitBtn.onclick=()=>{
-    closeAll();
-    component.setTriggerValue("exit",{id:Date.now().toString()});
+
+  endBtn.onclick = () => closeAll("Voice session ended", "idle");
+
+  exitBtn.onclick = () => {
+    closeAll("Voice session ended", "idle");
+    component.setTriggerValue("exit", { id: Date.now().toString() });
   };
-  if(state.connected){startBtn.disabled=true;endBtn.disabled=false;muteBtn.disabled=false;setStatus("Connected — speak naturally","listening");}
+
+  if (state.connected) {
+    startBtn.disabled = true;
+    endBtn.disabled = false;
+    muteBtn.disabled = false;
+    setStatus("Connected — speak naturally", "listening");
+  } else if (!state.starting) {
+    startBtn.disabled = false;
+  }
 }
 '''
 
