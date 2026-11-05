@@ -148,6 +148,7 @@ export default function(component) {
     closed: false,
     connectTimer: null
   };
+  const { setTriggerValue } = component;
   const state = window.__mergeGeminiLive ||
     (window.__mergeGeminiLive = defaults);
   Object.keys(defaults).forEach((key) => {
@@ -307,7 +308,8 @@ export default function(component) {
     });
 
     state.source = state.ctx.createMediaStreamSource(state.stream);
-    state.processor = state.ctx.createScriptProcessor(4096, 1, 1);
+    // 2048 frames at 48 kHz is about 43 ms per packet, reducing input latency.
+    state.processor = state.ctx.createScriptProcessor(2048, 1, 1);
 
     state.processor.onaudioprocess = (event) => {
       event.outputBuffer.getChannelData(0).fill(0);
@@ -319,8 +321,15 @@ export default function(component) {
         state.ws.readyState !== WebSocket.OPEN
       ) return;
 
+      const inputSamples = event.inputBuffer.getChannelData(0);
+      let sumSquares = 0;
+      for (let i = 0; i < inputSamples.length; i++) {
+        sumSquares += inputSamples[i] * inputSamples[i];
+      }
+      state.lastMicRms = Math.sqrt(sumSquares / Math.max(1, inputSamples.length));
+
       const pcm = floatToPcm16(
-        event.inputBuffer.getChannelData(0),
+        inputSamples,
         state.ctx.sampleRate,
         16000
       );
@@ -335,6 +344,17 @@ export default function(component) {
             }
           }
         }));
+        state.audioFramesSent = (state.audioFramesSent || 0) + 1;
+        const now = Date.now();
+        if (now - (state.lastMicStatusAt || 0) > 700) {
+          state.lastMicStatusAt = now;
+          setStatus(
+            state.lastMicRms > 0.006
+              ? "Microphone detected — listening"
+              : "Microphone active — speak now",
+            "listening"
+          );
+        }
       } catch (error) {
         closeAll("Audio could not be sent to Gemini: " + error.message, "error");
       }
@@ -380,6 +400,10 @@ export default function(component) {
       setStatus("Listening — you can interrupt anytime", "listening");
     }
 
+    if (server.interimInputTranscription && server.interimInputTranscription.text) {
+      userEl.textContent =
+        state.userText + server.interimInputTranscription.text;
+    }
     if (server.inputTranscription && server.inputTranscription.text) {
       state.userText += server.inputTranscription.text;
       userEl.textContent = state.userText;
@@ -408,7 +432,7 @@ export default function(component) {
       if (userText || assistantText) {
         const id = Date.now().toString() + "-" +
           Math.random().toString(36).slice(2);
-        component.setTriggerValue("turn", {
+        setTriggerValue("turn", {
           id: id,
           user: userText,
           assistant: assistantText
@@ -569,6 +593,15 @@ export default function(component) {
     state.muted = !state.muted;
 
     if (state.muted) {
+      // Tell Gemini the audio stream ended so server-side voice detection
+      // can finalize the current utterance before the mic track is stopped.
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        try {
+          state.ws.send(JSON.stringify({
+            realtimeInput: { audioStreamEnd: true }
+          }));
+        } catch (error) {}
+      }
       closeMic();
       muteBtn.querySelector("small").textContent = "Unmute";
       muteBtn.setAttribute("aria-pressed", "true");
@@ -592,7 +625,7 @@ export default function(component) {
 
   exitBtn.onclick = () => {
     closeAll("Voice session ended", "idle");
-    component.setTriggerValue("exit", { id: Date.now().toString() });
+    setTriggerValue("exit", { id: Date.now().toString() });
   };
 
   if (state.connected) {
