@@ -120,6 +120,7 @@ export default function(component) {
   if(data.standalone&&!state.standalone){state.open=true;state.enabled=true;state.muted=false;}
   else if(!data.standalone&&state.standalone){state.open=false;state.enabled=false;state.awaiting=false;stopRecognition();if(synth)synth.cancel();}
   state.standalone=!!data.standalone;
+  if(data.standalone&&state.open&&state.enabled&&!state.awaiting&&!state.speaking&&!state.listening)listen();
   mic.onclick=()=>{if(state.speaking){if(synth)synth.cancel();state.speaking=false;state.muted=false;listen();refresh();return;}state.muted=!state.muted;if(state.muted){stopRecognition();if(synth)synth.cancel();state.speaking=false}else{listen()}refresh()};
   langSelect.onchange=()=>{state.lang=langSelect.value;stopRecognition();if(synth)synth.cancel();state.speaking=false;if(state.enabled&&!state.awaiting&&!state.muted)listen();refresh()};
   if(data.reply_id&&data.reply_id!==state.seenReply){
