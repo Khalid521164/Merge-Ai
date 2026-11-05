@@ -318,6 +318,9 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_auto_memory = False
     st.session_state.ma_auto_memory_notice = ""
     st.session_state.ma_loaded = False
+    st.session_state.ma_voice_screen = False
+    st.session_state.ma_gemini_token = ""
+    st.session_state.ma_gemini_token_error = ""
     st.session_state.ma_voice_reply = ""
     st.session_state.ma_voice_audio_b64 = ""
 
