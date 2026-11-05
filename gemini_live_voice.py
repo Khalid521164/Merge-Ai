@@ -24,37 +24,13 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         return None, "GEMINI_API_KEY is missing. Add it to Streamlit Secrets."
 
     now = datetime.now(timezone.utc)
-    # The current v1beta AuthToken schema accepts a complete
-    # BidiGenerateContentSetup under bidiGenerateContentSetup.
-    # It does not accept the older liveConnectConstraints property.
-    bidi_setup = {
-        "model": MODEL,
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {
-                    "prebuiltVoiceConfig": {"voiceName": VOICE_NAME}
-                }
-            },
-        },
-        "inputAudioTranscription": {},
-        "outputAudioTranscription": {},
-        "realtimeInputConfig": {
-            "automaticActivityDetection": {"disabled": False},
-            "activityHandling": "START_OF_ACTIVITY_INTERRUPTS",
-        },
-        "sessionResumption": {},
-    }
-    if system_instruction:
-        bidi_setup["systemInstruction"] = {
-            "parts": [{"text": system_instruction}]
-        }
-
+    # Leave the session configuration to the first WebSocket setup message.
+    # Google uses bidiGenerateContentSetup from the token only when supplied;
+    # otherwise it takes the setup from the Live API connection.
     payload = {
         "uses": 3,
         "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
         "newSessionExpireTime": (now + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
-        "bidiGenerateContentSetup": bidi_setup,
     }
 
     try:
@@ -406,10 +382,21 @@ export default function(component) {
   };
 
   const onMessage = (event) => {
+    let raw = event.data;
+    if (raw instanceof Blob) {
+      raw.text().then((text) => onMessage({ data: text }));
+      return;
+    }
+
     let message;
     try {
-      message = JSON.parse(event.data);
+      message = JSON.parse(raw);
     } catch (error) {
+      setStatus(
+        "Gemini sent a non-JSON WebSocket response (" +
+        String(raw).slice(0, 100) + ").",
+        "error"
+      );
       return;
     }
 
@@ -465,6 +452,27 @@ export default function(component) {
         playPcm(part.inlineData.data);
       }
     });
+
+    if (
+      !message.setupComplete &&
+      !message.serverContent &&
+      !message.error &&
+      !message.goAway &&
+      !message.sessionResumptionUpdate &&
+      !message.usageMetadata &&
+      !message.toolCall &&
+      !message.toolCallCancellation
+    ) {
+      setStatus(
+        "Gemini sent an unexpected server message: " +
+        Object.keys(message).join(", "),
+        "error"
+      );
+    }
+
+    if (message.goAway) {
+      setStatus("Gemini is closing this Live session.", "error");
+    }
 
     if (server.turnComplete) {
       const userText = state.userText.trim();
@@ -569,8 +577,8 @@ export default function(component) {
       // A separate timer now waits for Google's setupComplete acknowledgement.
       state.connectTimer = setTimeout(() => {
         if (state.starting && !state.connected) {
-          closeAll(
-            "The WebSocket opened, but Gemini did not confirm the session setup within 15 seconds. The server may be rejecting the model, token, or setup configuration.",
+          setStatus(
+            "The WebSocket is open, but Gemini has not acknowledged setup. Waiting for the server response…",
             "error"
           );
         }
@@ -593,14 +601,7 @@ export default function(component) {
               "You are Merge AI, a warm, natural conversational assistant. Speak clearly and naturally in the language the user uses."
             )
           }]
-        },
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-        realtimeInputConfig: {
-          automaticActivityDetection: { disabled: false },
-          activityHandling: "START_OF_ACTIVITY_INTERRUPTS"
-        },
-        sessionResumption: {}
+        }
       };
 
       try {
