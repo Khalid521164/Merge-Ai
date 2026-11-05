@@ -38,7 +38,7 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
     payload = {
         "uses": 1,
         "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
-        "newSessionExpireTime": (now + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        "newSessionExpireTime": (now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
         "liveConnectConstraints": {
             "model": MODEL,
             "config": live_config,
@@ -204,6 +204,7 @@ export default function(component) {
     state.source=state.ctx.createMediaStreamSource(state.stream);
     state.processor=state.ctx.createScriptProcessor(4096,1,1);
     state.processor.onaudioprocess=(event)=>{
+      event.outputBuffer.getChannelData(0).fill(0);
       if(!state.connected||state.muted||!state.ws||state.ws.readyState!==WebSocket.OPEN)return;
       const pcm=floatToPcm16(event.inputBuffer.getChannelData(0),state.ctx.sampleRate,16000);
       if(!pcm.length)return;
