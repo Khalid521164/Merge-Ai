@@ -22,10 +22,26 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         return None, "GEMINI_API_KEY is missing. Add it to Streamlit Secrets."
 
     now = datetime.now(timezone.utc)
-    live_config = {
-        "responseModalities": ["AUDIO"],
-        "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": VOICE_NAME}}},
-        "systemInstruction": {"parts": [{"text": system_instruction or "You are Merge AI, a warm, natural, friendly conversational assistant. Speak in a relaxed, expressive, human-sounding male voice. Use natural pacing, short conversational sentences, and respond in the language the user speaks."}]},
+    # Current CreateAuthTokenRequest schema wraps all token settings in
+    # authToken. The full Live setup is bound server-side so the browser only
+    # receives the short-lived token, never the system prompt or chat context.
+    live_setup = {
+        "model": MODEL,
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": VOICE_NAME}}
+            },
+        },
+        "systemInstruction": {
+            "parts": [{
+                "text": system_instruction or (
+                    "You are Merge AI, a warm, natural, friendly conversational assistant. "
+                    "Speak in a relaxed, expressive, human-sounding male voice. Use natural "
+                    "pacing, short conversational sentences, and respond in the language the user speaks."
+                )
+            }]
+        },
         "inputAudioTranscription": {},
         "outputAudioTranscription": {},
         "realtimeInputConfig": {
@@ -35,13 +51,12 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         "sessionResumption": {},
     }
     payload = {
-        "uses": 1,
-        "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
-        "newSessionExpireTime": (now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
-        "liveConnectConstraints": {
-            "model": MODEL,
-            "config": live_config,
-        },
+        "authToken": {
+            "uses": 1,
+            "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
+            "newSessionExpireTime": (now + timedelta(minutes=3)).isoformat().replace("+00:00", "Z"),
+            "bidiGenerateContentSetup": live_setup,
+        }
     }
 
     try:
@@ -56,7 +71,8 @@ def create_ephemeral_token(api_key: str, system_instruction: str = "") -> tuple[
         )
         response.raise_for_status()
         data = response.json()
-        token = data.get("name") or (data.get("authToken") or {}).get("name")
+        auth_token = data.get("authToken") or data.get("auth_token") or {}
+        token = data.get("name") or auth_token.get("name")
         if not isinstance(token, str) or not token:
             return None, "Google did not return a Live API session token."
         return token, None
@@ -260,17 +276,10 @@ export default function(component) {
     const url="wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token="+encodeURIComponent(data.token);
     const ws=new WebSocket(url);state.ws=ws;
     ws.onopen=()=>{
-      const setup={
-        model:"models/gemini-3.8-live",
-        responseModalities:["AUDIO"],
-        speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Puck"}}},
-        systemInstruction:{parts:[{text:String(data.systemInstruction||"You are Merge AI, a helpful conversational voice assistant. Reply naturally and concisely in the language the user speaks.")}]},
-        inputAudioTranscription:{},
-        outputAudioTranscription:{},
-        realtimeInputConfig:{automaticActivityDetection:{disabled:false},activityHandling:"START_OF_ACTIVITY_INTERRUPTS"},
-        sessionResumption:{}
-      };
-      ws.send(JSON.stringify({setup:setup}));
+      // The complete setup is bound to the ephemeral token on the server.
+      // Send the required model identifier; Google's token config supplies the
+      // authoritative generation, voice, transcription, and prompt settings.
+      ws.send(JSON.stringify({setup:{model:"models/gemini-3.8-live"}}));
     };
     ws.onmessage=onMessage;
     ws.onerror=()=>{setStatus("Connection error. Check Gemini API access and try again.","error");};
@@ -315,7 +324,6 @@ def gemini_live_voice(*, token: str, system_instruction: str, key: str = "merge_
         key=key,
         data={
             "token": token,
-            "systemInstruction": system_instruction,
         },
         on_turn_change=lambda: None,
         on_exit_change=lambda: None,
