@@ -23,10 +23,26 @@ def create_ephemeral_token(api_key: str) -> tuple[str | None, str | None]:
         return None, "GEMINI_API_KEY is missing. Add it to Streamlit Secrets."
 
     now = datetime.now(timezone.utc)
+    live_config = {
+        "responseModalities": ["AUDIO"],
+        "speechConfig": {"voiceConfig": {"prebuiltVoiceConfig": {"voiceName": VOICE_NAME}}},
+        "systemInstruction": {"parts": [{"text": "You are Merge AI, a natural, friendly conversational assistant. Continue the user's existing conversation context. Speak concisely and naturally, and respond in the language the user uses."}]},
+        "inputAudioTranscription": {},
+        "outputAudioTranscription": {},
+        "realtimeInputConfig": {
+            "automaticActivityDetection": {"disabled": False},
+            "activityHandling": "START_OF_ACTIVITY_INTERRUPTS",
+        },
+        "sessionResumption": {},
+    }
     payload = {
         "uses": 1,
         "expireTime": (now + timedelta(minutes=30)).isoformat().replace("+00:00", "Z"),
         "newSessionExpireTime": (now + timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        "liveConnectConstraints": {
+            "model": MODEL,
+            "config": live_config,
+        },
     }
 
     try:
@@ -241,15 +257,13 @@ export default function(component) {
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){setStatus("Microphone access requires a supported browser and HTTPS.","error");return;}
     state.starting=true;state.closed=false;state.token=data.token;
     startBtn.disabled=true;setStatus("Connecting securely to Gemini…","thinking");
-    const url="wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?access_token="+encodeURIComponent(data.token);
+    const url="wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token="+encodeURIComponent(data.token);
     const ws=new WebSocket(url);state.ws=ws;
     ws.onopen=()=>{
       const setup={
         model:"models/gemini-3.8-live",
-        generationConfig:{
-          responseModalities:["AUDIO"],
-          speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Charon"}}}
-        },
+        responseModalities:["AUDIO"],
+        speechConfig:{voiceConfig:{prebuiltVoiceConfig:{voiceName:"Charon"}}},
         systemInstruction:{parts:[{text:String(data.systemInstruction||"You are Merge AI, a helpful conversational voice assistant. Reply naturally and concisely in the language the user speaks.")}]},
         inputAudioTranscription:{},
         outputAudioTranscription:{},
