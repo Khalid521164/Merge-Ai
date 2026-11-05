@@ -521,21 +521,37 @@ export default function(component) {
     }
 
     state.ws = socket;
+    let socketOpened = false;
 
+    // First measure the WebSocket handshake separately from Gemini session setup.
     state.connectTimer = setTimeout(() => {
-      if (state.starting && !state.connected) {
+      if (state.starting && !state.connected && !socketOpened) {
         closeAll(
-          "Gemini did not respond within 10 seconds. Check the connection and tap Start talking to retry.",
+          "Could not open a WebSocket connection to Gemini within 15 seconds. This points to a network, browser, or authentication handshake problem.",
           "error"
         );
       }
-    }, 10000);
+    }, 15000);
 
     socket.onopen = () => {
       if (state.closed) {
         try { socket.close(); } catch (error) {}
         return;
       }
+
+      socketOpened = true;
+      if (state.connectTimer) clearTimeout(state.connectTimer);
+      setStatus("Connected — configuring Gemini Live…", "thinking");
+
+      // A separate timer now waits for Google's setupComplete acknowledgement.
+      state.connectTimer = setTimeout(() => {
+        if (state.starting && !state.connected) {
+          closeAll(
+            "The WebSocket opened, but Gemini did not confirm the session setup within 15 seconds. The server may be rejecting the model, token, or setup configuration.",
+            "error"
+          );
+        }
+      }, 15000);
 
       const setup = {
         model: "models/gemini-3.8-live",
@@ -574,9 +590,11 @@ export default function(component) {
     socket.onmessage = onMessage;
 
     socket.onerror = () => {
+      // Browsers intentionally hide detailed WebSocket errors. Keep the socket
+      // alive briefly so onclose can report its close code and reason.
       if (!state.closed) {
-        closeAll(
-          "Gemini could not open the Live connection. Check the network and retry.",
+        setStatus(
+          "WebSocket error — waiting for Gemini connection details…",
           "error"
         );
       }
@@ -609,8 +627,13 @@ export default function(component) {
 
       if (!wasClosed) {
         state.closed = true;
-        const reason = event.reason ||
-          ("Gemini connection closed (code " + event.code + ").");
+        let reason = event.reason ||
+          ("WebSocket closed with code " + event.code + ".");
+        if (event.code === 1006) {
+          reason += " Code 1006 means the connection ended abnormally before a normal close; the browser cannot expose the server's private handshake detail.";
+        } else if (event.code === 1008) {
+          reason += " Code 1008 usually indicates an authentication, policy, or setup rejection.";
+        }
         setStatus(reason + " Tap Start talking to retry.", "error");
       }
     };
