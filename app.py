@@ -271,10 +271,10 @@ for key, value in defaults.items():
 # Rotate any token minted by the previous, unconstrained Live API flow.
 # Existing Streamlit sessions survive app deployments, so changing the
 # token version forces one fresh token after this release.
-if st.session_state.ma_gemini_token_version != "constrained-live-v1":
+if st.session_state.ma_gemini_token_version != "bidi-setup-v2":
     st.session_state.ma_gemini_token = ""
     st.session_state.ma_gemini_token_error = ""
-    st.session_state.ma_gemini_token_version = "constrained-live-v1"
+    st.session_state.ma_gemini_token_version = "bidi-setup-v2"
 
 
 # ===================== SUPABASE =====================
