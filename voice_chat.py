@@ -14,7 +14,7 @@ HTML = r'''
     <section class="mv-dialog" role="dialog" aria-modal="true" aria-label="Merge AI live voice conversation">
       <header class="mv-header"><div class="mv-logo">▥</div><div class="mv-heading"><b>Merge AI Voice</b><span>Talk naturally with Merge AI</span></div><button class="mv-close" aria-label="Close voice conversation" type="button">×</button></header>
       <div class="mv-language-row"><label for="mv-language">Conversation language</label><select id="mv-language" class="mv-language"></select></div>
-      <div class="mv-voice-row"><label for="mv-voice-provider">Voice</label><select id="mv-voice-provider" class="mv-voice-provider"><option value="kokoro">✦ Kokoro · Natural Male</option><option value="browser">Browser voice · Free fallback</option></select></div>
+      
       <div class="mv-provider-status" aria-live="polite"></div>
       <div class="mv-status" aria-live="polite">Ready to talk</div>
       <div class="mv-orb-wrap"><div class="mv-orb"><div class="mv-orb-core"></div></div></div>
@@ -54,7 +54,7 @@ export default function(component) {
   const q = s => root.querySelector(s);
   const overlay=q('.mv-overlay'), dialog=q('.mv-dialog'), openBtn=q('.mv-open'), closeBtn=q('.mv-close');
   const mic=q('.mv-mic'), micLabel=q('.mv-mic-label'), hang=q('.mv-hang');
-  const voiceSelect=q('.mv-voice-provider'), providerStatus=q('.mv-provider-status');
+  const providerStatus=q('.mv-provider-status');
   const status=q('.mv-status'), userText=q('.mv-user-text'), aiText=q('.mv-ai-text'), langSelect=q('.mv-language'), play=q('.mv-play');
   const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
   const langs = [
@@ -68,11 +68,9 @@ export default function(component) {
     ['no-NO','Norsk'],['fi-FI','Suomi'],['ro-RO','Română'],['cs-CZ','Čeština'],['hu-HU','Magyar']
   ];
   langs.forEach(([code,label])=>{const opt=document.createElement('option');opt.value=code;opt.textContent=label;langSelect.append(opt)});
-  const state=window.__mergeVoice || (window.__mergeVoice={open:false,enabled:false,muted:false,listening:false,awaiting:false,speaking:false,lang:'en-US',rec:null,seenReply:'',seenFail:'',speech:null,lastUser:'',lastAi:'',audioB64:'',audioPlayer:null,voiceProvider:'kokoro',audioError:''});
-  state.ui={overlay,dialog,mic,micLabel,status,userText,aiText,langSelect,play,setTriggerValue};
+  const state=window.__mergeVoice || (window.__mergeVoice={open:false,enabled:false,muted:false,listening:false,awaiting:false,speaking:false,lang:'en-US',rec:null,seenReply:'',seenFail:'',speech:null,lastUser:'',lastAi:'',audioB64:'',audioPlayer:null,voiceProvider:'browser',audioError:''});
+  state.ui={overlay,dialog,mic,micLabel,status,userText,aiText,langSelect,play,setTriggerValue,openBtn};
   langSelect.value=state.lang;
-  if(!data.kokoro_available){voiceSelect.querySelector('option[value=kokoro]').disabled=true; if(state.voiceProvider==='kokoro')state.voiceProvider='browser';}
-  voiceSelect.value=state.voiceProvider;
   userText.textContent=state.lastUser||'Your words will appear here…';
   aiText.textContent=state.lastAi||'I’m ready to listen.';
   const synth=window.speechSynthesis;
@@ -83,7 +81,7 @@ export default function(component) {
     try {synth.cancel();const silent=new SpeechSynthesisUtterance(' ');silent.volume=0;synth.speak(silent);} catch(e){}
   };
   const stopRecognition=()=>{const r=state.rec;state.rec=null;state.listening=false;if(r){try{r.abort()}catch(e){}}};
-  const refresh=()=>{const u=state.ui;u.overlay.hidden=!state.open;u.play.hidden=!state.lastAi||!state.open;const mode=state.speaking?'speaking':state.awaiting?'thinking':state.listening?'listening':'idle';u.dialog.dataset.mode=mode;u.status.textContent=!Rec?'Speech recognition unavailable in this browser':state.speaking?'🔊 Merge AI is speaking…':state.awaiting?'⏳ Merge AI is thinking…':state.listening?'🔵 Listening… speak now':state.muted?'Microphone muted':'Ready to talk';u.mic.setAttribute('aria-pressed',String(state.muted));u.micLabel.textContent=state.muted?'Unmute':'Mute';providerStatus.textContent=state.audioError||(state.voiceProvider==='kokoro'?'✦ Kokoro · selected voice':'Browser text-to-speech');};
+  const refresh=()=>{const u=state.ui;u.overlay.hidden=!state.open;u.openBtn.hidden=!!data.standalone;u.play.hidden=!state.lastAi||!state.open;const mode=state.speaking?'speaking':state.awaiting?'thinking':state.listening?'listening':'idle';u.dialog.dataset.mode=mode;u.status.textContent=!Rec?'Speech recognition unavailable in this browser':state.speaking?'🔊 Merge AI is speaking…':state.awaiting?'⏳ Merge AI is thinking…':state.listening?'🔵 Listening… speak now':state.muted?'Microphone muted':'Ready to talk';u.mic.setAttribute('aria-pressed',String(state.muted));u.micLabel.textContent=state.muted?'Unmute':'Mute';providerStatus.textContent='Free browser text-to-speech';};
   const listen=()=>{
     if(!state.open||!state.enabled||state.muted||state.listening||state.awaiting||state.speaking||!Rec)return;
     const rec=new Rec();state.rec=rec;rec.lang=state.lang;rec.continuous=false;rec.interimResults=true;rec.maxAlternatives=1;
@@ -96,18 +94,6 @@ export default function(component) {
     try{rec.start();state.listening=true;refresh()}catch(e){state.listening=false;state.ui.status.textContent='Could not open the microphone.';}
   };
   const speakAnswer=()=>{
-    if(state.voiceProvider==='kokoro' && state.lang.startsWith('en') && state.audioB64){
-      stopRecognition();
-      if(synth)synth.cancel();
-      if(state.audioPlayer){state.audioPlayer.pause();state.audioPlayer=null;}
-      const player=new Audio('data:audio/wav;base64,'+state.audioB64);
-      state.audioPlayer=player;
-      state.speaking=true;refresh();
-      player.onended=()=>{state.speaking=false;state.audioPlayer=null;refresh();if(state.open&&state.enabled&&!state.muted)listen();};
-      player.onerror=()=>{state.audioB64='';state.audioPlayer=null;state.speaking=false;refresh();state.audioError='Kokoro playback failed — using browser voice';speakAnswer();};
-      player.play().catch(()=>{state.speaking=false;refresh();state.ui.status.textContent='Click 🔊 Play answer to hear Kokoro.';});
-      return;
-    }
     if(!synth||!state.lastAi){state.ui.status.textContent='Speech playback is unavailable on this browser.';return;}
     stopRecognition();
     synth.cancel();
@@ -128,15 +114,17 @@ export default function(component) {
     state.speaking=true;refresh();next();
   };
   play.onclick=()=>{unlockSpeech();speakAnswer();};
-  voiceSelect.onchange=()=>{state.voiceProvider=voiceSelect.value;state.audioError=''; if(state.audioPlayer){state.audioPlayer.pause();state.audioPlayer=null;} if(synth)synth.cancel();state.speaking=false;refresh();};
-  const close=()=>{state.open=false;state.enabled=false;state.awaiting=false;state.speaking=false;stopRecognition();if(synth)synth.cancel();if(state.audioPlayer){state.audioPlayer.pause();state.audioPlayer=null;}refresh()};
+  const close=()=>{state.open=false;state.enabled=false;state.awaiting=false;state.speaking=false;stopRecognition();if(synth)synth.cancel();refresh();if(data.standalone)setTriggerValue('exit',String(Date.now()))};
   const open=()=>{unlockSpeech();state.open=true;state.enabled=true;state.muted=false;refresh();listen()};
   openBtn.onclick=open;closeBtn.onclick=close;hang.onclick=close;
-  mic.onclick=()=>{state.muted=!state.muted;if(state.muted){stopRecognition();if(synth)synth.cancel();state.speaking=false}else{listen()}refresh()};
+  if(data.standalone&&!state.standalone){state.open=true;state.enabled=true;state.muted=false;}
+  else if(!data.standalone&&state.standalone){state.open=false;state.enabled=false;state.awaiting=false;stopRecognition();if(synth)synth.cancel();}
+  state.standalone=!!data.standalone;
+  mic.onclick=()=>{if(state.speaking){if(synth)synth.cancel();state.speaking=false;state.muted=false;listen();refresh();return;}state.muted=!state.muted;if(state.muted){stopRecognition();if(synth)synth.cancel();state.speaking=false}else{listen()}refresh()};
   langSelect.onchange=()=>{state.lang=langSelect.value;stopRecognition();if(synth)synth.cancel();state.speaking=false;if(state.enabled&&!state.awaiting&&!state.muted)listen();refresh()};
   if(data.reply_id&&data.reply_id!==state.seenReply){
     state.seenReply=data.reply_id;state.awaiting=false;
-    state.lastAi=String(data.reply||'');state.audioB64=String(data.audio_b64||'');state.audioError=(state.voiceProvider==='kokoro'&&!state.audioB64)?'Kokoro unavailable — browser fallback':'';state.ui.aiText.textContent=state.lastAi;
+    state.lastAi=String(data.reply||'');state.audioB64='';state.audioError='';state.ui.aiText.textContent=state.lastAi;
     stopRecognition();refresh();
     if(state.open&&state.enabled&&state.lastAi)speakAnswer();
     else if(state.open&&state.enabled&&!state.muted)listen();
@@ -150,13 +138,19 @@ export default function(component) {
 voice_component = st.components.v2.component('merge_ai_voice_modal', html=HTML, css=CSS, js=JS)
 
 
-def voice_chat(*, reply: str = '', reply_id: str = '', failed_id: str = '', audio_b64: str = '', kokoro_available: bool = False) -> dict | None:
-    """Render button/popup and return {text, language, language_name} for a new utterance."""
+def voice_chat(*, reply: str = '', reply_id: str = '', failed_id: str = '', standalone: bool = False) -> dict | None:
+    """Render browser-based voice and return a transcript or a voice-screen exit."""
     result = voice_component(
         key='merge_ai_voice_modal',
-        data={'reply': reply, 'reply_id': reply_id, 'failed_id': failed_id, 'audio_b64': audio_b64, 'kokoro_available': kokoro_available},
+        data={'reply': reply, 'reply_id': reply_id, 'failed_id': failed_id, 'standalone': standalone},
         on_transcript_change=lambda: None,
     )
+    exit_event = getattr(result, 'exit', None)
+    if exit_event:
+        event_id = str(exit_event)
+        if st.session_state.get('ma_last_voice_exit') != event_id:
+            st.session_state.ma_last_voice_exit = event_id
+            return {'exit': True}
     event = getattr(result, 'transcript', None)
     if not isinstance(event, dict) or not isinstance(event.get('text'), str):
         return None
@@ -168,5 +162,5 @@ def voice_chat(*, reply: str = '', reply_id: str = '', failed_id: str = '', audi
         'text': event['text'].strip()[:1000],
         'language': str(event.get('language') or 'en-US')[:20],
         'language_name': str(event.get('language_name') or 'English')[:70],
-        'voice_provider': 'kokoro' if event.get('voice_provider') == 'kokoro' else 'browser',
+        'request_id': event_id,
     }
