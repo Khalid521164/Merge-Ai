@@ -90,7 +90,7 @@ export default function(component) {
       if(final.trim()&&!state.awaiting){state.lastUser=final.trim();state.awaiting=true;stopRecognition();state.ui.aiText.textContent='Thinking…';state.ui.setTriggerValue('transcript',{id:Date.now()+'-'+Math.random(),text:state.lastUser.slice(0,1000),language:state.lang,language_name:langs.find(v=>v[0]===state.lang)?.[1]||state.lang,voice_provider:state.voiceProvider});refresh()}
     };
     rec.onerror=event=>{state.listening=false;if(['not-allowed','service-not-allowed'].includes(event.error))state.muted=true;state.ui.status.textContent='Microphone: '+event.error;};
-    rec.onend=()=>{if(state.rec===rec)state.rec=null;state.listening=false;refresh();};
+    rec.onend=()=>{if(state.rec===rec)state.rec=null;state.listening=false;refresh();if(state.open&&state.enabled&&!state.muted&&!state.awaiting&&!state.speaking&&Rec)setTimeout(listen,350);};
     try{rec.start();state.listening=true;refresh()}catch(e){state.listening=false;state.ui.status.textContent='Could not open the microphone.';}
   };
   const speakAnswer=()=>{
@@ -105,7 +105,7 @@ export default function(component) {
       if(!state.open||!state.enabled||index>=chunks.length){state.speaking=false;refresh();if(state.open&&state.enabled&&!state.muted)listen();return;}
       const utter=new SpeechSynthesisUtterance(chunks[index++]);utter.lang=state.lang;utter.rate=1;
       const voices=synth.getVoices();const desired=state.lang.toLowerCase();
-      const voice=voices.find(v=>v.lang?.toLowerCase()===desired)||voices.find(v=>v.lang?.split('-')[0]===desired.split('-')[0]);
+      const exact=voices.filter(v=>v.lang?.toLowerCase()===desired);const voice=exact.find(v=>/\bmale\b/i.test(v.name))||exact[0]||voices.find(v=>v.lang?.split('-')[0]===desired.split('-')[0]);
       if(voice)utter.voice=voice;
       utter.onend=next;
       utter.onerror=e=>{state.speaking=false;refresh();state.ui.status.textContent='Audio could not play. Check device volume and browser voices.';};
