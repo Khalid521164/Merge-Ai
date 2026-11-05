@@ -246,6 +246,13 @@ export default function(component) {
     startBtn.disabled=true;setStatus("Connecting securely to Gemini…","thinking");
     const url="wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token="+encodeURIComponent(data.token);
     const ws=new WebSocket(url);state.ws=ws;
+    // Timeout covers both the WebSocket handshake and Gemini's setup response.
+    state.connectTimer=setTimeout(()=>{
+      if(state.starting&&!state.connected){
+        closeAll();
+        setStatus("Gemini connection timed out. Tap Start talking to try again.","error");
+      }
+    },20000);
     ws.onopen=()=>{
       const setup={
         model:"models/gemini-3.8-live",
@@ -260,12 +267,6 @@ export default function(component) {
         sessionResumption:{}
       };
       ws.send(JSON.stringify({setup:setup}));
-      state.connectTimer=setTimeout(()=>{
-        if(state.starting&&!state.connected){
-          setStatus("Gemini did not finish connecting. Tap Try again to reconnect.","error");
-          closeAll();
-        }
-      },15000);
     };
     ws.onmessage=onMessage;
     ws.onerror=()=>{
