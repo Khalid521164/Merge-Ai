@@ -254,6 +254,7 @@ defaults = {
     "ma_search": False,
     "ma_mode": "Fast",
     "ma_web": True,
+    "ma_voice_screen": False,
     "ma_voice_reply": "",
     "ma_voice_reply_id": "",
     "ma_voice_failed_id": "",
@@ -436,8 +437,18 @@ with st.sidebar:
     # ================= NEW CHAT =================
 
     if st.button("✏️ New chat"):
+        st.session_state.ma_voice_screen = False
         start_chat()
         st.rerun()
+
+    if st.button("🎙️ Full-screen voice", key="open_full_voice"):
+        st.session_state.ma_voice_screen = True
+        st.rerun()
+
+    if st.session_state.ma_voice_screen:
+        if st.button("← Back to chat", key="back_from_voice_sidebar"):
+            st.session_state.ma_voice_screen = False
+            st.rerun()
 
     # ================= SEARCH =================
 
@@ -886,146 +897,97 @@ def ask_ai(chat, question):
     return extract(result)
 
 
-# ===================== CHAT DISPLAY =====================
-
-st.markdown(
-    '<div class="m-top">'
-    '<div class="m-title">Merge AI ⌄</div>'
-    '<div class="m-model">'
-    'Gemini + Groq + OpenRouter'
-    '</div></div>',
-    unsafe_allow_html=True,
-)
+# ===================== CHAT AND VOICE SCREENS =====================
 
 chat = active_chat()
+voice_screen = bool(st.session_state.ma_voice_screen)
 
-
-# ===================== WELCOME =====================
-
-if not chat["messages"]:
-
+if voice_screen:
     st.markdown(
-        '<div class="m-welcome">'
-        '<div class="m-logo" style="width:55px;'
-        'height:55px;font-size:28px">M</div>'
-        '<div class="m-welcome-title">'
-        'What can I help with?'
-        '</div>'
-        '<div style="color:#89958d;font-size:13px">'
-        'Ask a question or start a voice conversation.'
-        '</div></div>',
+        '<div class="m-top"><div class="m-title">Merge AI Voice</div>'
+        '<div class="m-model">Free browser live conversation</div></div>',
         unsafe_allow_html=True,
     )
-
-
-# ===================== MESSAGES =====================
-
-for i, msg in enumerate(chat["messages"]):
-
-    content = str(
-        msg.get("content", "")
+    st.markdown(
+        '<div class="m-welcome" style="min-height:95px">'
+        '<div class="m-welcome-title">Talk naturally with Merge AI</div>'
+        '<div style="color:#89958d;font-size:13px">'
+        'Your chat history and AI models stay connected.</div></div>',
+        unsafe_allow_html=True,
     )
-
-    if msg.get("role") == "user":
-
+else:
+    st.markdown(
+        '<div class="m-top"><div class="m-title">Merge AI ⌄</div>'
+        '<div class="m-model">Gemini + Groq + OpenRouter</div></div>',
+        unsafe_allow_html=True,
+    )
+    if not chat["messages"]:
         st.markdown(
-            '<div class="m-user-line">'
-            '<div class="m-user-text">'
-            + html.escape(content)
-            + '</div></div>',
+            '<div class="m-welcome">'
+            '<div class="m-logo" style="width:55px;height:55px;font-size:28px">M</div>'
+            '<div class="m-welcome-title">What can I help with?</div>'
+            '<div style="color:#89958d;font-size:13px">'
+            'Ask a question or start a voice conversation.</div></div>',
             unsafe_allow_html=True,
         )
-
-    else:
-
-        st.markdown(
-            '<div class="m-assistant">'
-            '✦ Merge AI'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-
-        st.markdown(content)
-
-        sources = (
-            msg.get("sources") or []
-        )
-
-        if sources:
-
-            with st.expander("Sources"):
-
-                for source in sources[:8]:
-
-                    if isinstance(source, str):
-                        url = source
-
-                    elif isinstance(source, dict):
-                        url = source.get(
-                            "url",
-                            ""
-                        )
-
-                    else:
-                        url = ""
-
-                    if (
-                        isinstance(url, str)
-                        and url.startswith(
-                            ("https://", "http://")
-                        )
-                    ):
-                        st.write(url)
+    for msg in chat["messages"]:
+        content = str(msg.get("content", ""))
+        if msg.get("role") == "user":
+            st.markdown(
+                '<div class="m-user-line"><div class="m-user-text">'
+                + html.escape(content)
+                + '</div></div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown('<div class="m-assistant">✦ Merge AI</div>', unsafe_allow_html=True)
+            st.markdown(content)
+            sources = msg.get("sources") or []
+            if sources:
+                with st.expander("Sources"):
+                    for source in sources[:8]:
+                        if isinstance(source, str):
+                            url = source
+                        elif isinstance(source, dict):
+                            url = source.get("url", "")
+                        else:
+                            url = ""
+                        if isinstance(url, str) and url.startswith(("https://", "http://")):
+                            st.write(url)
 
 
-# ===================== LIVE VOICE =====================
+# ===================== BROWSER LIVE VOICE =====================
 
-st.caption("🎙️ LIVE VOICE")
+if not voice_screen:
+    st.caption("🎙️ LIVE VOICE")
 
 voice_event = None
-
 if voice_chat:
-
     try:
         voice_event = voice_chat(
-            reply=(
-                st.session_state.ma_voice_reply
-            ),
-            reply_id=(
-                st.session_state.ma_voice_reply_id
-            ),
-            failed_id=(
-                st.session_state.ma_voice_failed_id
-            ),
-            audio_b64=(
-                st.session_state.ma_voice_audio_b64
-            ),
-            kokoro_available=False,
+            reply=st.session_state.ma_voice_reply,
+            reply_id=st.session_state.ma_voice_reply_id,
+            failed_id=st.session_state.ma_voice_failed_id,
+            standalone=voice_screen,
         )
-
-    except Exception:
-
-        st.warning(
-            "Live Voice could not start. "
-            "Check voice_chat.py."
-        )
-
+    except Exception as exc:
+        st.warning("Live Voice could not start. Check voice_chat.py: " + str(exc))
 else:
-
-    st.caption(
-        "Add voice_chat.py to enable "
-        "the live voice orb."
-    )
+    st.caption("Add voice_chat.py to enable live voice.")
 
 
 # ===================== INPUT =====================
 
-question = st.chat_input(
+question = None if voice_screen else st.chat_input(
     "Ask Merge AI anything…"
 )
 
 is_voice = False
 
+
+if isinstance(voice_event, dict) and voice_event.get("exit"):
+    st.session_state.ma_voice_screen = False
+    st.rerun()
 
 if isinstance(voice_event, dict):
 
