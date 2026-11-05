@@ -6,7 +6,6 @@ single-use ephemeral token and connects directly to Gemini over WebSocket.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import uuid
 
 import requests
 import streamlit as st
