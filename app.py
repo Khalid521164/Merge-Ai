@@ -52,11 +52,6 @@ except Exception as exc:
     ENGINE_ERROR = str(exc)
 
 try:
-    from voice_chat import voice_chat
-except Exception:
-    voice_chat = None
-
-try:
     from gemini_live_voice import create_ephemeral_token, gemini_live_voice
     GEMINI_LIVE_ERROR = None
 except Exception as exc:
@@ -265,11 +260,6 @@ defaults = {
     "ma_voice_screen": False,
     "ma_gemini_token": "",
     "ma_gemini_token_error": "",
-    "ma_voice_reply": "",
-    "ma_voice_reply_id": "",
-    "ma_voice_failed_id": "",
-    "ma_voice_audio_b64": "",
-    "ma_last_voice": "",
     "ma_db_error": "",
 }
 
@@ -1105,80 +1095,11 @@ for i, msg in enumerate(chat["messages"]):
                         st.write(url)
 
 
-# ===================== LIVE VOICE =====================
-
-st.caption("🎙️ LIVE VOICE")
-
-voice_event = None
-
-if voice_chat:
-
-    try:
-        voice_event = voice_chat(
-            reply=(
-                st.session_state.ma_voice_reply
-            ),
-            reply_id=(
-                st.session_state.ma_voice_reply_id
-            ),
-            failed_id=(
-                st.session_state.ma_voice_failed_id
-            ),
-            audio_b64=(
-                st.session_state.ma_voice_audio_b64
-            ),
-            kokoro_available=False,
-        )
-
-    except Exception:
-
-        st.warning(
-            "Live Voice could not start. "
-            "Check voice_chat.py."
-        )
-
-else:
-
-    st.caption(
-        "Add voice_chat.py to enable "
-        "the live voice orb."
-    )
-
-
-# ===================== INPUT =====================
+# ===================== CHAT INPUT =====================
 
 question = st.chat_input(
     "Ask Merge AI anything…"
 )
-
-is_voice = False
-
-
-if isinstance(voice_event, dict):
-
-    spoken = str(
-        voice_event.get("text") or ""
-    ).strip()
-
-    event_id = str(
-        voice_event.get("request_id")
-        or voice_event.get("id")
-        or spoken
-    )
-
-    if (
-        not question
-        and spoken
-        and event_id
-        != st.session_state.ma_last_voice
-    ):
-
-        st.session_state.ma_last_voice = (
-            event_id
-        )
-
-        question = spoken
-        is_voice = True
 
 
 # ===================== RESPONSE =====================
@@ -1253,21 +1174,6 @@ if question and question.strip():
                     break
             elif len(st.session_state.ma_memory_suggestions) < 6:
                 st.session_state.ma_memory_suggestions.append(suggestion)
-
-    # Browser Live Voice response.
-    if is_voice:
-
-        st.session_state.ma_voice_reply = (
-            answer
-        )
-
-        st.session_state.ma_voice_reply_id = (
-            str(uuid.uuid4())
-        )
-
-        st.session_state.ma_voice_audio_b64 = ""
-
-        st.session_state.ma_voice_failed_id = ""
 
     st.rerun()
 
