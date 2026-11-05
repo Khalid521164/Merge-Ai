@@ -243,7 +243,7 @@ export default function(component) {
     if(!data.token){setStatus("Missing Gemini session token. Reload and try again.","error");return;}
     if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){setStatus("Microphone access requires a supported browser and HTTPS.","error");return;}
     state.starting=true;state.closed=false;state.token=data.token;
-    startBtn.disabled=true;setStatus("Connecting securely to Gemini…","thinking");
+    startBtn.disabled=true;setStatus("Starting Gemini Live…","thinking");
     const url="wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token="+encodeURIComponent(data.token);
     const ws=new WebSocket(url);state.ws=ws;
     // Timeout covers both the WebSocket handshake and Gemini's setup response.
