@@ -252,7 +252,7 @@ export default function(component) {
         closeAll();
         setStatus("Gemini connection timed out. Tap Start talking to try again.","error");
       }
-    },20000);
+    },10000);
     ws.onopen=()=>{
       const setup={
         model:"models/gemini-3.8-live",
