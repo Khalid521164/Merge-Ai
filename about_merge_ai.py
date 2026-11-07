@@ -35,11 +35,13 @@ def answer_project_question(question: str) -> str | None:
     q = re.sub(r"\s+", " ", raw.casefold()).strip(" \t?.!")
 
     owner_patterns = (
-        r"(?:who (?:created|made|built|developed|owns) "
-        r"(?:you|merge ai|mergeai|this (?:ai|app))|"
+        r"(?:who (?:created|made|built|develop(?:ed)?|devlop(?:ed)?|owns) "
+        r"(?:you|merge ai|mergeai|this (?:ai|app))"
+        r"(?: (?:on|in) (?:my|your) (?:pc|computer|phone|laptop))?|"
         r"who (?:is|was) (?:your|merge ai(?:'s)?) (?:creator|owner)|"
         r"(?:who|what) (?:is|was) (?:your|the) creator(?: of merge ai)?|"
-        r"(?:tell me )?who (?:made|created|built) (?:you|merge ai)|"
+        r"who (?:is )?(?:the )?developer of (?:you|merge ai|mergeai)|"
+        r"(?:tell me )?who (?:made|created|built|develop(?:ed)?|devlop(?:ed)?) (?:you|merge ai)|"
         r"who is behind merge ai)"
     )
     purpose_patterns = (
@@ -53,7 +55,7 @@ def answer_project_question(question: str) -> str | None:
     )
 
     if re.fullmatch(
-        r"who (?:created|made|built) (?:you|merge ai) and why",
+        r"who (?:created|made|built|develop(?:ed)?|devlop(?:ed)?) (?:you|merge ai) and why",
         q,
     ):
         return f"I was created by **{CREATOR_NAME}** for {CREATED_FOR}. {PURPOSE}"
