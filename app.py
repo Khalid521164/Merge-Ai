@@ -875,6 +875,56 @@ def ask_ai(chat, question):
     return extract(result)
 
 
+def process_user_turn(chat, question, *, source="chat", voice_event=None):
+    """Use one answer, persistence, and memory path for all input modalities."""
+    from conversation_pipeline import claim_voice_event, process_turn
+
+    if source == "voice" and isinstance(voice_event, dict):
+        seen = st.session_state.setdefault("ma_processed_voice_events", [])
+        if not claim_voice_event(str(voice_event.get("id") or ""), seen):
+            return None
+
+    answer, sources = process_turn(
+        chat, question,
+        answer=lambda current_chat, current_question: ask_ai(current_chat, current_question),
+        persist=persist, source=source,
+    )
+
+    # Kokoro/browser speech is only an output adapter for the saved final answer.
+    if source == "voice" and isinstance(voice_event, dict):
+        st.session_state.ma_voice_reply = answer
+        st.session_state.ma_voice_reply_id = str(voice_event.get("id") or uuid.uuid4())
+        st.session_state.ma_voice_audio_b64 = ""
+        st.session_state.ma_voice_failed_id = ""
+        config = voice_settings()
+        future = None
+        result = SpeechResult(status="browser", message="Browser voice selected.",
+                              allow_fallback=config.browser_fallback)
+        if voice_event.get("voice_provider") == "kokoro":
+            future = start_audio(answer, language=voice_event.get("language", "en-US"), config=config)
+        st.session_state.ma_voice_job = {"future": future, "result": result}
+
+    # Apply the exact same account-scoped, opt-in memory rules to both modes.
+    if user and db and not st.session_state.ma_db_error:
+        previous = [m.get("content", "") for m in st.session_state.ma_memories]
+        previous += st.session_state.ma_memory_suggestions
+        for suggestion in suggest_memories(question, previous):
+            if st.session_state.ma_auto_memory:
+                if len(st.session_state.ma_memories) >= 50:
+                    st.session_state.ma_auto_memory_notice = "Memory is full. Delete some saved memories to add more."
+                    break
+                try:
+                    db.add_memory(suggestion)
+                    st.session_state.ma_memories = db.list_memories()
+                    st.session_state.ma_auto_memory_notice = "Saved a new memory automatically. You can delete it in My memory."
+                except CloudHistoryError:
+                    st.session_state.ma_auto_memory_notice = "Could not save memory to Supabase. Check your cloud connection."
+                    break
+            elif len(st.session_state.ma_memory_suggestions) < 6:
+                st.session_state.ma_memory_suggestions.append(suggestion)
+    return answer, sources
+
+
 # ===================== CHAT DISPLAY =====================
 
 st.markdown(
@@ -1086,91 +1136,17 @@ if question and question.strip():
 
     chat = active_chat()
 
-    # Build context BEFORE appending the question.
+    # Chat text and Live Voice transcripts share one processor.
     with st.spinner("Consulting models..."):
-
         try:
-            answer, sources = ask_ai(
-                chat,
-                question
+            process_user_turn(
+                chat, question,
+                source="voice" if is_voice else "chat",
+                voice_event=voice_event if is_voice else None,
             )
-
         except Exception:
-
-            answer = (
-                "I couldn't generate an answer. "
-                "Please try again or check the app logs."
-            )
-
-            sources = []
-
-    # Save user message.
-    chat["messages"].append({
-        "role": "user",
-        "content": question,
-    })
-
-    # Save assistant message.
-    chat["messages"].append({
-        "role": "assistant",
-        "content": answer,
-        "sources": sources,
-    })
-
-    # Automatic chat title.
-    if chat["title"] == "New chat":
-        chat["title"] = question[:60]
-
-    # Persist to Supabase when connected.
-    persist(chat)
-
-    # Per-account memory: automatic saving requires an explicit opt-in.
-    # No content from anonymous visitors is stored as memory.
-    if user and db and not st.session_state.ma_db_error:
-        previous = [m.get("content", "") for m in st.session_state.ma_memories]
-        previous += st.session_state.ma_memory_suggestions
-        candidates = suggest_memories(question, previous)
-        for suggestion in candidates:
-            if st.session_state.ma_auto_memory:
-                if len(st.session_state.ma_memories) >= 50:
-                    st.session_state.ma_auto_memory_notice = (
-                        "Memory is full. Delete some saved memories to add more."
-                    )
-                    break
-                try:
-                    db.add_memory(suggestion)
-                    st.session_state.ma_memories = db.list_memories()
-                    st.session_state.ma_auto_memory_notice = (
-                        "Saved a new memory automatically. You can delete it in My memory."
-                    )
-                except CloudHistoryError:
-                    st.session_state.ma_auto_memory_notice = (
-                        "Could not save memory to Supabase. Check your cloud connection."
-                    )
-                    break
-            elif len(st.session_state.ma_memory_suggestions) < 6:
-                st.session_state.ma_memory_suggestions.append(suggestion)
-
-    # Browser Live Voice response.
-    if is_voice:
-
-        st.session_state.ma_voice_reply = (
-            answer
-        )
-
-        st.session_state.ma_voice_reply_id = (
-            voice_event["id"]
-        )
-
-        st.session_state.ma_voice_audio_b64 = ""
-
-        st.session_state.ma_voice_failed_id = ""
-        config = voice_settings()
-        future = None
-        result = SpeechResult(status="browser", message="Browser voice selected.", allow_fallback=config.browser_fallback)
-        if voice_event.get("voice_provider") == "kokoro":
-            future = start_audio(answer, language=voice_event.get("language", "en-US"), config=config)
-        st.session_state.ma_voice_job = {"future": future, "result": result}
+            logging.exception("Shared user-turn processing failed")
+            st.error("I couldn't generate an answer. Please try again or check the app logs.")
 
     st.rerun()
 
