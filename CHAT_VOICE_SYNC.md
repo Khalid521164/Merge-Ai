@@ -52,3 +52,28 @@ microphone/speaker behavior must be checked in an isolated preview.
    source display, memory opt-in, and Kokoro/browser playback.
 5. Do not test cross-account isolation with real user data. Use two disposable
    test accounts and verify each account can only load its own rows.
+
+
+## Verified project-owner voice identity
+
+Chat and Live Voice now share a verified owner identity context. Configure one
+or both of these Streamlit secrets in the deployment settings (never commit
+them to the repository):
+
+- `OWNER_GOOGLE_SUBS`: comma-separated Google OAuth subject IDs. This is the
+  strongest stable account identifier and does not depend on an email changing.
+- `OWNER_EMAILS`: comma-separated Google email addresses. Email matching is
+  accepted only when the authenticated Google claim includes
+  `email_verified = true`.
+- `OWNER_DISPLAY_NAME`: optional name used when addressing the verified owner.
+
+Until at least one allowlist is configured, no signed-in account is treated as
+the verified owner. The assistant may describe the project's creator from the
+public project facts, but it must not infer that the current speaker is that
+creator. A spoken or typed claim such as "I am the owner" never grants access.
+
+Use `owner_auth.require_project_owner(user, secret)` immediately before every
+future owner-only backend operation. UI visibility alone is not authorization.
+The helper raises `PermissionError` for non-owner accounts. This commit adds
+the shared identity context and guard; it does not invent owner-only controls
+or enable destructive administrative operations.
