@@ -806,34 +806,12 @@ def build_context(chat, question):
         for m in memories:
             lines.append("- " + m[:500])
 
-    # Recent messages only.
-    recent = chat["messages"][-12:]
-
+    # Both typed and spoken turns receive the same bounded transcript and
+    # retained source metadata. Full history remains saved in the chat record.
+    from app_context import serialize_conversation
+    recent = serialize_conversation(chat)
     if recent:
-        lines.append(
-            "\nRecent conversation:"
-        )
-
-        for m in recent:
-            role = m.get(
-                "role",
-                "user"
-            )
-
-            content = str(
-                m.get("content", "")
-            )[:1500]
-
-            # Do not feed old accidental draft-comparison replies
-            # back into the model; they can contaminate new answers.
-            if role == "assistant":
-                from merge_ai import is_draft_comparison
-                if is_draft_comparison(content):
-                    continue
-
-            lines.append(
-                role + ": " + content
-            )
+        lines.extend(["\nConversation history (oldest first):", recent])
 
     lines.append(
         "\nCurrent question:\n" + question
