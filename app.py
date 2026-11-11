@@ -46,6 +46,7 @@ from about_merge_ai import PROJECT_CONTEXT, CREATOR_NAME, CREATED_FOR, PURPOSE, 
 from kokoro_tts import SpeechResult, availability, start_audio
 from voice_config import get_voice_config
 from listen_button import listen_button
+from owner_auth import is_project_owner, owner_context
 
 
 def voice_settings():
@@ -432,6 +433,9 @@ with st.sidebar:
             str(user.get("email", "Google account"))
         )
 
+        if is_project_owner(user, secret):
+            st.success("Verified project owner")
+
     else:
         st.info(
             "Sign in with Google to save chats "
@@ -786,6 +790,7 @@ def build_context(chat, question):
 
     lines = [
         "You are Merge AI, a helpful AI assistant.",
+        owner_context(user, secret),
         "Answer the user's actual latest question directly. "
         "Never compare hidden AI drafts or describe model evaluations.",
         "If the user asks multiple questions, answer each in order. "
