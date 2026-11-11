@@ -608,6 +608,10 @@ with st.sidebar:
             "non-sensitive facts from both chat and voice. You can switch it off anytime "
             "or delete individual memories below. Sensitive information is excluded."
         )
+        if not user:
+            st.info("Sign in with Google to save memories across conversations and devices.")
+        elif not db:
+            st.warning("Memory storage is unavailable until the Supabase connection is configured.")
         if st.session_state.ma_auto_memory_notice:
             st.caption(st.session_state.ma_auto_memory_notice)
 
@@ -909,7 +913,7 @@ def process_user_turn(chat, question, *, source="chat", voice_event=None):
             future = start_audio(answer, language=voice_event.get("language", "en-US"), config=config)
         st.session_state.ma_voice_job = {"future": future, "result": result}
 
-    # Apply the exact same account-scoped, opt-in memory rules to both modes.
+    # Apply the same account-scoped automatic-memory rules to chat and voice.
     if user and db and not st.session_state.ma_db_error:
         previous = [m.get("content", "") for m in st.session_state.ma_memories]
         previous += st.session_state.ma_memory_suggestions
