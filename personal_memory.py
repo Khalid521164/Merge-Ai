@@ -33,6 +33,13 @@ _PATTERNS: tuple[tuple[str, str], ...] = (
     (r"^(?:i (?:prefer|usually prefer))\s+(.+)$", "I prefer {value}."),
     (r"^(?:my favorite (sport|food|subject|hobby|color|game) is)\s+(.+)$", "My favorite {category} is {value}."),
     (r"^(?:i am studying|i'm studying)\s+(.+)$", "I am studying {value}."),
+    (r"^(?:i am|i'm) a[n]?\s+(.{2,55}?)\s+student$", "I am a {value} student."),
+    (r"^(?:i work as|my job is)\s+(.+)$", "I work as {value}."),
+    (r"^(?:i am interested in|i'm interested in)\s+(.+)$", "I am interested in {value}."),
+    (r"^(?:my current focus is|i am focusing on|i'm focusing on)\s+(.+)$", "My current focus is {value}."),
+    (r"^(?:i am preparing for|i'm preparing for)\s+(.+)$", "I am preparing for {value}."),
+    (r"^(?:i use)\s+([a-z][\w .+/#-]{1,55})$", "I use {value}."),
+
     (r"^(?:i want to|i would like to|i'd like to)\s+(.+)$", "I want to {value}."),
     (r"^(?:i'm|i am)\s+working on\s+(.+)$", "I am working on {value}."),
     (r"^(?:i'm|i am)\s+learning\s+(.+)$", "I am learning {value}."),
