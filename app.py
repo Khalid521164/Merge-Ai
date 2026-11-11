@@ -261,7 +261,7 @@ defaults = {
     "ma_memories": [],
     "ma_memory_suggestions": [],
     "ma_memory_enabled": True,
-    "ma_auto_memory": False,
+    "ma_auto_memory": True,
     "ma_auto_memory_notice": "",
     "ma_search": False,
     "ma_mode": "Fast",
@@ -316,7 +316,7 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_memories = []
     st.session_state.ma_memory_suggestions = []
     st.session_state.ma_memory_enabled = True
-    st.session_state.ma_auto_memory = False
+    st.session_state.ma_auto_memory = True
     st.session_state.ma_auto_memory_notice = ""
     st.session_state.ma_loaded = False
     st.session_state.ma_voice_reply = ""
@@ -598,15 +598,15 @@ with st.sidebar:
             help="Controls whether memories are included in AI requests; it does not delete saved memories.",
         )
         st.checkbox(
-            "Automatically remember my goals, preferences and projects",
+            "Automatically remember useful facts from our conversations",
             key="ma_auto_memory",
             disabled=not bool(user),
-            help="Off by default. When enabled, Merge AI saves selected non-sensitive facts from new messages to your signed-in account. You can delete any saved memory here.",
+            help="On by default for signed-in accounts. Merge AI automatically saves selected non-sensitive facts from chat and voice conversations. You can turn this off or delete memories here.",
         )
         st.caption(
-            "Automatic memory is off by default. It only saves recognized "
-            "goals, preferences and projects after you turn it on. "
-            "Avoid sharing sensitive information. You can delete any memory."
+            "Automatic memory is on by default for signed-in accounts. Merge AI saves recognized "
+            "non-sensitive facts from both chat and voice. You can switch it off anytime "
+            "or delete individual memories below. Sensitive information is excluded."
         )
         if st.session_state.ma_auto_memory_notice:
             st.caption(st.session_state.ma_auto_memory_notice)
