@@ -417,13 +417,9 @@ if active_chat() is None:
 
 with st.sidebar:
 
-    st.markdown(
-        '<div class="m-brand">'
-        '<div class="m-logo">M</div>'
-        '<div class="m-name">Merge AI</div>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
+    st.markdown('<div class="m-brand">', unsafe_allow_html=True)
+    st.image("assets/merge_ai_icon.svg", width=48)
+    st.markdown('<div class="m-name">Merge AI</div></div>', unsafe_allow_html=True)
 
     # ================= ACCOUNT =================
 
@@ -967,16 +963,12 @@ if st.session_state.get("ma_voice_scope") != voice_scope:
 
 if not chat["messages"]:
 
+    st.markdown('<div class="m-welcome">', unsafe_allow_html=True)
+    st.image("assets/merge_ai_icon.svg", width=64)
     st.markdown(
-        '<div class="m-welcome">'
-        '<div class="m-logo" style="width:55px;'
-        'height:55px;font-size:28px">M</div>'
-        '<div class="m-welcome-title">'
-        'What can I help with?'
-        '</div>'
+        '<div class="m-welcome-title">What can I help with?</div>'
         '<div style="color:#89958d;font-size:13px">'
-        'Ask a question or start a voice conversation.'
-        '</div></div>',
+        'Ask a question or start a voice conversation.</div></div>',
         unsafe_allow_html=True,
     )
 
