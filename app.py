@@ -12,7 +12,7 @@ import streamlit as st
 
 st.set_page_config(
     page_title="Merge AI",
-    page_icon="merge_ai_icon.png",
+    page_icon="assets/merge_ai_icon.svg",
     layout="wide",
     initial_sidebar_state="expanded",
 )
