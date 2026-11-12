@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+<defs>
+ <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#020719"/><stop offset=".55" stop-color="#09002a"/><stop offset="1" stop-color="#030b24"/></linearGradient>
+ <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#16dfff"/><stop offset=".48" stop-color="#425bff"/><stop offset="1" stop-color="#ed35ff"/></linearGradient>
+ <linearGradient id="ribbon" x1="0" y1="0" x2="1" y2=".2"><stop stop-color="#28f4ff"/><stop offset=".43" stop-color="#168cff"/><stop offset=".72" stop-color="#a43cff"/><stop offset="1" stop-color="#ff43ed"/></linearGradient>
+ <linearGradient id="orbit" x1="0" y1="0" x2="1" y2="0"><stop stop-color="#e84aff"/><stop offset=".5" stop-color="#35dfff"/><stop offset="1" stop-color="#a63fff"/></linearGradient>
+ <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect x="12" y="12" width="1000" height="1000" rx="145" fill="url(#bg)" stroke="url(#edge)" stroke-width="18"/>
+<rect x="28" y="28" width="968" height="968" rx="132" fill="none" stroke="#6e4cff" stroke-opacity=".22" stroke-width="5"/>
+<g filter="url(#glow)">
+ <path d="M190 680 C270 610 330 545 365 420 C390 335 465 335 510 410 L605 575 C625 610 650 605 675 565 L755 420 C800 340 885 365 900 455 L950 720" fill="none" stroke="url(#ribbon)" stroke-width="118" stroke-linecap="round" stroke-linejoin="round"/>
+ <path d="M125 635 C280 785 690 760 900 560 C975 490 925 420 825 405" fill="none" stroke="url(#orbit)" stroke-width="28" stroke-linecap="round"/>
+ <path d="M825 215 L852 292 L930 320 L852 347 L825 425 L798 347 L720 320 L798 292 Z" fill="#d9faff"/>
+</g>
+</svg>
