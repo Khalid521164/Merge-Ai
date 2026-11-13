@@ -161,28 +161,26 @@ header[data-testid="stHeader"]{
 /* Pin the plus attachment control beside Streamlit's fixed chat composer.
    Streamlit renders chat_input at the viewport bottom, outside normal columns. */
 
-/* Merge AI custom chat composer: plus, message field and send stay together. */
+/* Fixed chat composer and explicit plus-button attachment tray. */
 .st-key-ma_chat_composer{
     position:fixed!important;
     left:clamp(280px,17.6vw,360px)!important;
     right:4.5vw!important;
-    bottom:48px!important;
+    bottom:38px!important;
     z-index:99999!important;
     background:var(--background-color, white)!important;
     padding:8px 10px!important;
-    border:1px solid rgba(130,140,150,.28)!important;
+    border:1px solid rgba(130,140,150,.35)!important;
     border-radius:16px!important;
-    box-shadow:0 3px 18px rgba(0,0,0,.07)!important;
+    box-shadow:0 3px 18px rgba(0,0,0,.08)!important;
 }
-.st-key-ma_chat_composer [data-testid="stPopover"]{width:100%!important}
-.st-key-ma_chat_composer [data-testid="stPopover"]>button{
+.st-key-ma_chat_attach_button button{
     width:44px!important;min-width:44px!important;height:44px!important;
-    border-radius:50%!important;font-size:25px!important;font-weight:600!important;
-    padding:0!important;display:flex!important;align-items:center!important;
-    justify-content:center!important;
+    min-height:44px!important;padding:0!important;border-radius:50%!important;
+    font-size:26px!important;font-weight:700!important;line-height:1!important;
 }
-.st-key-ma_chat_composer [data-testid="stPopover"]>button p{
-    font-size:25px!important;line-height:1!important;margin:0!important;
+.st-key-ma_chat_attach_button button p{
+    font-size:26px!important;line-height:1!important;margin:0!important;
 }
 .st-key-ma_chat_composer [data-testid="stForm"]{
     border:0!important;padding:0!important;background:transparent!important;
@@ -195,12 +193,24 @@ header[data-testid="stHeader"]{
     height:44px!important;min-height:44px!important;width:44px!important;
     border-radius:50%!important;font-size:22px!important;padding:0!important;
 }
-.ma-send-hint{display:none}
+.st-key-ma_chat_attach_panel{
+    position:fixed!important;
+    left:clamp(280px,17.6vw,360px)!important;
+    bottom:104px!important;
+    width:min(440px,calc(100vw - 300px))!important;
+    max-height:60vh!important;
+    overflow-y:auto!important;
+    z-index:100000!important;
+    background:var(--background-color, white)!important;
+    padding:16px!important;
+    border:1px solid rgba(130,140,150,.35)!important;
+    border-radius:16px!important;
+    box-shadow:0 8px 28px rgba(0,0,0,.16)!important;
+}
+.block-container{padding-bottom:9rem!important}
 @media(max-width:720px){
-    .st-key-ma_chat_composer{
-        left:8px!important;right:8px!important;bottom:12px!important;
-        padding:6px!important;
-    }
+    .st-key-ma_chat_composer{left:8px!important;right:8px!important;bottom:10px!important;padding:6px!important}
+    .st-key-ma_chat_attach_panel{left:8px!important;right:8px!important;bottom:82px!important;width:auto!important;max-height:55vh!important}
 }
 .m-top{
     display:flex;
@@ -1209,30 +1219,20 @@ voice_event = st.session_state.pop("ma_pending_voice", None)
 
 # ===================== INPUT =====================
 
-# A single custom composer keeps the plus menu, message box and send
-# button in one layout. Streamlit's native chat_input is independently fixed.
+# A fixed custom composer puts the plus button beside the message field.
 st.session_state.setdefault("ma_upload_version", 0)
-st.session_state.setdefault("ma_composer_text", "")
+st.session_state.setdefault("ma_show_attach_panel", False)
 question = None
 uploaded_files = []
 camera_photo = None
+typed_question = ""
+send_clicked = False
 
 with st.container(key="ma_chat_composer"):
-    plus_col, message_col = st.columns([0.75, 11.25], vertical_alignment="bottom")
+    plus_col, message_col = st.columns([0.8, 11.2], vertical_alignment="bottom")
     with plus_col:
-        with st.popover("＋", type="secondary", help="Attach files, photos or use your camera", key="ma_chat_attach_menu"):
-            st.markdown("**Add to your message**")
-            uploaded_files = st.file_uploader(
-                "Files and photos",
-                type=["pdf", "docx", "xlsx", "xlsm", "pptx", "csv", "tsv", "txt", "md", "json", "py", "js", "html", "css", "xml", "yaml", "yml", "log", "png", "jpg", "jpeg", "webp", "gif"],
-                accept_multiple_files=True,
-                key="ma_chat_files_" + str(st.session_state.ma_upload_version),
-                help="Up to 12 MB combined. Document text goes to your selected AI provider; photos go to Gemini.",
-            )
-            camera_photo = st.camera_input(
-                "Take a photo",
-                key="ma_chat_camera_" + str(st.session_state.ma_upload_version),
-            )
+        if st.button("＋", key="ma_chat_attach_button", help="Add files, photos or camera", type="secondary", use_container_width=True):
+            st.session_state.ma_show_attach_panel = not st.session_state.ma_show_attach_panel
     with message_col:
         with st.form("ma_chat_composer_form", clear_on_submit=True, border=False):
             input_col, send_col = st.columns([11, 0.8], vertical_alignment="bottom")
@@ -1245,6 +1245,22 @@ with st.container(key="ma_chat_composer"):
                 )
             with send_col:
                 send_clicked = st.form_submit_button("↑", type="primary", use_container_width=True)
+
+# Attachment tray opens from the plus button and sits just above the composer.
+if st.session_state.ma_show_attach_panel:
+    with st.container(key="ma_chat_attach_panel"):
+        st.markdown("**Add to your message**")
+        uploaded_files = st.file_uploader(
+            "Choose files and photos",
+            type=["pdf", "docx", "xlsx", "xlsm", "pptx", "csv", "tsv", "txt", "md", "json", "py", "js", "html", "css", "xml", "yaml", "yml", "log", "png", "jpg", "jpeg", "webp", "gif"],
+            accept_multiple_files=True,
+            key="ma_chat_files_" + str(st.session_state.ma_upload_version),
+            help="Up to 12 MB combined. Document text goes to your selected AI provider; photos go to Gemini.",
+        )
+        camera_photo = st.camera_input(
+            "Take a photo",
+            key="ma_chat_camera_" + str(st.session_state.ma_upload_version),
+        )
 
 attachment_files = list(uploaded_files or [])
 if camera_photo is not None:
