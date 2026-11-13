@@ -158,6 +158,44 @@ header[data-testid="stHeader"]{
     font-weight:750;
 }
 
+/* Pin the plus attachment control beside Streamlit's fixed chat composer.
+   Streamlit renders chat_input at the viewport bottom, outside normal columns. */
+.st-key-ma_chat_attach_menu{
+    position:fixed!important;
+    left:max(12px, calc((100vw - 1100px)/2 - 40px))!important;
+    bottom:38px!important;
+    width:44px!important;
+    z-index:100000!important;
+}
+.st-key-ma_chat_attach_menu [data-testid="stPopover"]{
+    width:44px!important;
+}
+.st-key-ma_chat_attach_menu button{
+    width:42px!important;
+    min-width:42px!important;
+    height:42px!important;
+    min-height:42px!important;
+    padding:0!important;
+    border-radius:50%!important;
+    font-size:23px!important;
+    font-weight:700!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    box-shadow:0 2px 10px rgba(0,0,0,.14)!important;
+}
+.st-key-ma_chat_attach_menu button p{
+    font-size:23px!important;
+    line-height:1!important;
+    margin:0!important;
+}
+@media(max-width:720px){
+    .st-key-ma_chat_attach_menu{
+        left:10px!important;
+        bottom:34px!important;
+    }
+}
+
 .m-top{
     display:flex;
     align-items:center;
