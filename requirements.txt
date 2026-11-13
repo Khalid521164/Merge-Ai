@@ -3,3 +3,9 @@ streamlit>=1.52.0,<2.0
 requests>=2.31.0,<3.0.0
 Authlib>=1.3.2,<2.0.0
 httpx>=0.27.0,<1.0.0
+
+# Read common document formats in the chat attachment tray
+pypdf>=5.0,<7
+python-docx>=1.1,<2
+openpyxl>=3.1,<4
+python-pptx>=1.0,<2
