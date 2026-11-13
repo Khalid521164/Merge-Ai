@@ -203,3 +203,44 @@ def build_docx_bytes(markdown_text: str) -> bytes:
     output = io.BytesIO()
     document.save(output)
     return output.getvalue()
+
+def build_xlsx_bytes(markdown_text: str) -> bytes:
+    """Export Markdown tables or a plain answer into an editable workbook."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Merge AI Output"
+    lines = [line.strip() for line in str(markdown_text or "").splitlines() if line.strip()]
+    table_rows = []
+    for line in lines:
+        if line.startswith("|") and line.endswith("|"):
+            cells = [cell.strip() for cell in line.strip("|").split("|")]
+            if all(set(cell) <= {"-", ":", " "} for cell in cells):
+                continue
+            table_rows.append(cells)
+
+    if table_rows:
+        for row in table_rows:
+            sheet.append(row)
+    else:
+        sheet.append(["Merge AI response"])
+        for line in lines:
+            sheet.append([line.replace("`", "")])
+
+    for cell in sheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="253B80")
+        cell.alignment = Alignment(wrap_text=True, vertical="top")
+    for column in sheet.columns:
+        letter = column[0].column_letter
+        max_len = max((len(str(cell.value or "")) for cell in column), default=12)
+        sheet.column_dimensions[letter].width = min(max(max_len + 2, 14), 48)
+    for row in sheet.iter_rows():
+        for cell in row:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
