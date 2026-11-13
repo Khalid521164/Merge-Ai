@@ -30,7 +30,7 @@ def secret(name, default=""):
 for name in (
     "GEMINI_API_KEY", "GROQ_API_KEY",
     "OPENROUTER_API_KEY", "TAVILY_API_KEY",
-    "GEMINI_MODEL", "GROQ_MODEL",
+    "GEMINI_MODEL", "GEMINI_IMAGE_MODEL", "GROQ_MODEL",
     "OPENROUTER_MODEL",
 ):
     value = secret(name)
