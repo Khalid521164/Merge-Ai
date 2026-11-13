@@ -1165,21 +1165,25 @@ voice_event = st.session_state.pop("ma_pending_voice", None)
 
 # ===================== INPUT =====================
 
-# The plus menu keeps attachments beside the chat composer.
+# The plus menu sits directly beside the chat composer.
 st.session_state.setdefault("ma_upload_version", 0)
-with st.popover("＋", help="Attach files, add photos, or use your camera"):
-    st.markdown("**Add to your message**")
-    uploaded_files = st.file_uploader(
-        "Choose files or photos",
-        type=["pdf", "docx", "xlsx", "xlsm", "pptx", "csv", "tsv", "txt", "md", "json", "py", "js", "html", "css", "xml", "yaml", "yml", "log", "png", "jpg", "jpeg", "webp", "gif"],
-        accept_multiple_files=True,
-        key="ma_chat_files_" + str(st.session_state.ma_upload_version),
-        help="Up to 12 MB combined. Extracted text goes to the selected AI provider; photos go to Gemini.",
-    )
-    camera_photo = st.camera_input(
-        "Take a photo",
-        key="ma_chat_camera_" + str(st.session_state.ma_upload_version),
-    )
+composer_plus, composer_input = st.columns([1, 12], vertical_alignment="bottom")
+with composer_plus:
+    with st.popover("＋", help="Attach files, add photos, or use your camera"):
+        st.markdown("**Add to your message**")
+        uploaded_files = st.file_uploader(
+            "Choose files or photos",
+            type=["pdf", "docx", "xlsx", "xlsm", "pptx", "csv", "tsv", "txt", "md", "json", "py", "js", "html", "css", "xml", "yaml", "yml", "log", "png", "jpg", "jpeg", "webp", "gif"],
+            accept_multiple_files=True,
+            key="ma_chat_files_" + str(st.session_state.ma_upload_version),
+            help="Up to 12 MB combined. Extracted text goes to the selected AI provider; photos go to Gemini.",
+        )
+        camera_photo = st.camera_input(
+            "Take a photo",
+            key="ma_chat_camera_" + str(st.session_state.ma_upload_version),
+        )
+with composer_input:
+    question = st.chat_input("Ask Merge AI anything…")
 
 attachment_files = list(uploaded_files or [])
 if camera_photo is not None:
@@ -1201,10 +1205,6 @@ if attachment_files:
     except Exception as exc:
         st.error(str(exc))
         attachment_payload = {"text": "", "images": []}
-
-question = st.chat_input(
-    "Ask Merge AI anything…"
-)
 
 is_voice = False
 
