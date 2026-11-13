@@ -47,7 +47,7 @@ from kokoro_tts import SpeechResult, availability, start_audio
 from voice_config import get_voice_config
 from listen_button import listen_button
 from owner_auth import is_project_owner, owner_context
-from file_studio import read_uploads, analyze_images, generate_image, build_docx_bytes
+from file_studio import read_uploads, analyze_images, generate_image, build_docx_bytes, build_xlsx_bytes
 
 
 def voice_settings():
@@ -1084,6 +1084,16 @@ for i, msg in enumerate(chat["messages"]):
             )
         except Exception:
             st.caption("Word export is temporarily unavailable.")
+        try:
+            st.download_button(
+                "📊 Download as Excel",
+                data=build_xlsx_bytes(content),
+                file_name=f"merge-ai-response-{i + 1}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"ma_download_xlsx_{st.session_state.ma_voice_scope_token}_{i}",
+            )
+        except Exception:
+            st.caption("Excel export is temporarily unavailable.")
         listen_button(content, key=st.session_state.ma_voice_scope_token + "_" + str(i), config=voice_settings())
 
         sources = (
