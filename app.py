@@ -1218,7 +1218,7 @@ uploaded_files = []
 camera_photo = None
 
 with st.container(key="ma_chat_composer"):
-    plus_col, message_col, send_col = st.columns([0.65, 10, 0.8], vertical_alignment="bottom")
+    plus_col, message_col = st.columns([0.75, 11.25], vertical_alignment="bottom")
     with plus_col:
         with st.popover("＋", type="secondary", help="Attach files, photos or use your camera", key="ma_chat_attach_menu"):
             st.markdown("**Add to your message**")
@@ -1235,15 +1235,16 @@ with st.container(key="ma_chat_composer"):
             )
     with message_col:
         with st.form("ma_chat_composer_form", clear_on_submit=True, border=False):
-            typed_question = st.text_input(
-                "Message",
-                placeholder="Ask Merge AI anything…",
-                label_visibility="collapsed",
-                key="ma_composer_text",
-            )
-            send_clicked = st.form_submit_button("↑", type="primary", use_container_width=True)
-    with send_col:
-        st.markdown('<div class="ma-send-hint">Send</div>', unsafe_allow_html=True)
+            input_col, send_col = st.columns([11, 0.8], vertical_alignment="bottom")
+            with input_col:
+                typed_question = st.text_input(
+                    "Message",
+                    placeholder="Ask Merge AI anything…",
+                    label_visibility="collapsed",
+                    key="ma_composer_text",
+                )
+            with send_col:
+                send_clicked = st.form_submit_button("↑", type="primary", use_container_width=True)
 
 attachment_files = list(uploaded_files or [])
 if camera_photo is not None:
