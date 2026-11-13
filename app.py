@@ -1338,6 +1338,7 @@ if question and question.strip():
             )
             if attachment_files:
                 st.session_state.ma_upload_version += 1
+                st.session_state.ma_show_attach_panel = False
         except Exception:
             logging.exception("Shared user-turn processing failed")
             st.error("I couldn't generate an answer. Please try again or check the app logs.")
