@@ -960,6 +960,7 @@ chat = active_chat()
 # ===================== FILES & PHOTOS =====================
 
 st.session_state.setdefault("ma_upload_version", 0)
+attachment_payload = {"text": "", "images": []}
 with st.expander("📎 Files & photos — upload for Merge AI to read", expanded=False):
     uploaded_files = st.file_uploader(
         "Upload PDFs, Word, Excel, PowerPoint, text, code, or photos",
@@ -981,9 +982,6 @@ with st.expander("📎 Files & photos — upload for Merge AI to read", expanded
         except Exception as exc:
             st.error(str(exc))
             attachment_payload = {"text": "", "images": []}
-else:
-    attachment_payload = {"text": "", "images": []}
-
 # ===================== IMAGE GENERATION =====================
 
 with st.expander("🎨 Create an image with Merge AI", expanded=False):
