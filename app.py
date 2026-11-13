@@ -976,8 +976,9 @@ with st.expander("📎 Files & photos — upload for Merge AI to read", expanded
             attachment_payload = {"text": file_text, "images": file_images}
             for notice in file_notices:
                 st.caption("✓ " + notice)
-            if file_images:
-                st.image([item["data"] for item in file_images], caption=[item["name"] for item in file_images], width=130)
+            preview_images = [item for item in file_images if item["mime_type"].startswith("image/")]
+            if preview_images:
+                st.image([item["data"] for item in preview_images], caption=[item["name"] for item in preview_images], width=130)
             st.info("Your files are ready. Ask a question in the chat box below.")
         except Exception as exc:
             st.error(str(exc))
