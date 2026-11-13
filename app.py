@@ -967,7 +967,7 @@ with st.expander("📎 Files & photos — upload for Merge AI to read", expanded
         type=["pdf", "docx", "xlsx", "xlsm", "pptx", "csv", "tsv", "txt", "md", "json", "py", "js", "html", "css", "xml", "yaml", "yml", "log", "png", "jpg", "jpeg", "webp", "gif"],
         accept_multiple_files=True,
         key="ma_files_" + str(st.session_state.ma_upload_version),
-        help="Up to 12 MB combined. Attachments are used for this conversation and are not saved to long-term memory.",
+        help="Up to 12 MB combined. Extracted text is sent to the selected AI provider; photos are sent to Gemini. Attachments are not saved as long-term memory.",
     )
     attachment_payload = {"text": "", "images": []}
     if uploaded_files:
