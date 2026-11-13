@@ -171,3 +171,35 @@ def generate_image(prompt: str) -> tuple[bytes, str]:
         if inline and inline.get("data"):
             return base64.b64decode(inline["data"]), "\n".join(text_parts).strip()
     raise RuntimeError("The model returned text but no image. Check that your Gemini API key and image model are enabled.")
+
+def build_docx_bytes(markdown_text: str) -> bytes:
+    """Create a simple editable Word document from a Merge AI answer."""
+    from docx import Document
+    from docx.shared import Inches, Pt
+
+    document = Document()
+    section = document.sections[0]
+    section.top_margin = Inches(0.7)
+    section.bottom_margin = Inches(0.7)
+    document.styles["Normal"].font.name = "Aptos"
+    document.styles["Normal"].font.size = Pt(10.5)
+
+    for raw in str(markdown_text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("### "):
+            document.add_heading(line[4:], level=3)
+        elif line.startswith("## "):
+            document.add_heading(line[3:], level=2)
+        elif line.startswith("# "):
+            document.add_heading(line[2:], level=1)
+        elif line.startswith(("- ", "* ")):
+            document.add_paragraph(line[2:], style="List Bullet")
+        elif line[:1].isdigit() and ". " in line[:5]:
+            document.add_paragraph(line.split(". ", 1)[1], style="List Number")
+        else:
+            document.add_paragraph(line.replace("`", ""))
+    output = io.BytesIO()
+    document.save(output)
+    return output.getvalue()
