@@ -957,32 +957,8 @@ st.markdown(
 
 chat = active_chat()
 
-# ===================== FILES & PHOTOS =====================
+# File attachments are now available from the plus menu beside chat input.
 
-st.session_state.setdefault("ma_upload_version", 0)
-attachment_payload = {"text": "", "images": []}
-with st.expander("📎 Files & photos — upload for Merge AI to read", expanded=False):
-    uploaded_files = st.file_uploader(
-        "Upload PDFs, Word, Excel, PowerPoint, text, code, or photos",
-        type=["pdf", "docx", "xlsx", "xlsm", "pptx", "csv", "tsv", "txt", "md", "json", "py", "js", "html", "css", "xml", "yaml", "yml", "log", "png", "jpg", "jpeg", "webp", "gif"],
-        accept_multiple_files=True,
-        key="ma_files_" + str(st.session_state.ma_upload_version),
-        help="Up to 12 MB combined. Extracted text is sent to the selected AI provider; photos are sent to Gemini. Attachments are not saved as long-term memory.",
-    )
-    attachment_payload = {"text": "", "images": []}
-    if uploaded_files:
-        try:
-            file_text, file_images, file_notices = read_uploads(uploaded_files)
-            attachment_payload = {"text": file_text, "images": file_images}
-            for notice in file_notices:
-                st.caption("✓ " + notice)
-            preview_images = [item for item in file_images if item["mime_type"].startswith("image/")]
-            if preview_images:
-                st.image([item["data"] for item in preview_images], caption=[item["name"] for item in preview_images], width=130)
-            st.info("Your files are ready. Ask a question in the chat box below.")
-        except Exception as exc:
-            st.error(str(exc))
-            attachment_payload = {"text": "", "images": []}
 # ===================== IMAGE GENERATION =====================
 
 with st.expander("🎨 Create an image with Merge AI", expanded=False):
@@ -1189,6 +1165,43 @@ voice_event = st.session_state.pop("ma_pending_voice", None)
 
 # ===================== INPUT =====================
 
+# The plus menu keeps attachments beside the chat composer.
+st.session_state.setdefault("ma_upload_version", 0)
+with st.popover("＋", help="Attach files, add photos, or use your camera"):
+    st.markdown("**Add to your message**")
+    uploaded_files = st.file_uploader(
+        "Choose files or photos",
+        type=["pdf", "docx", "xlsx", "xlsm", "pptx", "csv", "tsv", "txt", "md", "json", "py", "js", "html", "css", "xml", "yaml", "yml", "log", "png", "jpg", "jpeg", "webp", "gif"],
+        accept_multiple_files=True,
+        key="ma_chat_files_" + str(st.session_state.ma_upload_version),
+        help="Up to 12 MB combined. Extracted text goes to the selected AI provider; photos go to Gemini.",
+    )
+    camera_photo = st.camera_input(
+        "Take a photo",
+        key="ma_chat_camera_" + str(st.session_state.ma_upload_version),
+    )
+
+attachment_files = list(uploaded_files or [])
+if camera_photo is not None:
+    attachment_files.append(camera_photo)
+
+attachment_payload = {"text": "", "images": []}
+if attachment_files:
+    try:
+        file_text, file_images, file_notices = read_uploads(attachment_files)
+        attachment_payload = {"text": file_text, "images": file_images}
+        st.caption(" · ".join(file_notices))
+        preview_images = [item for item in file_images if item["mime_type"].startswith("image/")]
+        if preview_images:
+            st.image(
+                [item["data"] for item in preview_images],
+                caption=[item["name"] for item in preview_images],
+                width=110,
+            )
+    except Exception as exc:
+        st.error(str(exc))
+        attachment_payload = {"text": "", "images": []}
+
 question = st.chat_input(
     "Ask Merge AI anything…"
 )
@@ -1240,7 +1253,7 @@ if question and question.strip():
                 voice_event=voice_event if is_voice else None,
                 attachments=attachment_payload,
             )
-            if uploaded_files:
+            if attachment_files:
                 st.session_state.ma_upload_version += 1
         except Exception:
             logging.exception("Shared user-turn processing failed")
