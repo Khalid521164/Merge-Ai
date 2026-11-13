@@ -103,7 +103,7 @@ def read_uploads(files: list[Any]) -> tuple[str, list[dict[str, Any]], list[str]
     return "\n".join(sections), images, notices
 
 def _gemini_request(model: str, api_key: str, contents: list[dict], *, image_output: bool = False) -> dict:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1/models/{model}:generateContent"
     payload: dict[str, Any] = {"contents": contents}
     if image_output:
         payload["generationConfig"] = {
