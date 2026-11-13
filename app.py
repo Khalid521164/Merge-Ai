@@ -1169,7 +1169,7 @@ voice_event = st.session_state.pop("ma_pending_voice", None)
 st.session_state.setdefault("ma_upload_version", 0)
 composer_plus, composer_input = st.columns([1, 12], vertical_alignment="bottom")
 with composer_plus:
-    with st.popover("＋", type="secondary", help="Attach files, add photos, or use your camera", disabled=False, key="ma_chat_attach_menu"):
+    with st.popover("＋", type="primary", help="Attach files, add photos, or use your camera", disabled=False, key="ma_chat_attach_menu"):
         st.markdown("**Add to your message**")
         uploaded_files = st.file_uploader(
             "Choose files or photos",
