@@ -1230,17 +1230,24 @@ typed_question = ""
 send_clicked = False
 
 with st.container(key="ma_chat_composer"):
-    plus_col, message_col, think_col, mic_col, send_col = st.columns(
-        [0.72, 7.8, 1.15, 0.72, 0.78], vertical_alignment="center"
+    plus_col, message_col, think_col, mic_col = st.columns(
+        [0.72, 8.4, 1.15, 0.72], vertical_alignment="center"
     )
     with plus_col:
         if st.button("＋", key="ma_chat_attach_button", help="Add photos and files", type="secondary", use_container_width=True):
             st.session_state.ma_show_attach_panel = not st.session_state.ma_show_attach_panel
     with message_col:
-        typed_question = st.text_input(
-            "Message", placeholder="Ask Merge AI anything…",
-            label_visibility="collapsed", key="ma_composer_text",
-        )
+        with st.form("ma_chat_composer_form", clear_on_submit=True, border=False):
+            input_col, send_col = st.columns([11, 0.75], vertical_alignment="center")
+            with input_col:
+                typed_question = st.text_input(
+                    "Message", placeholder="Ask Merge AI anything…",
+                    label_visibility="collapsed", key="ma_composer_text",
+                )
+            with send_col:
+                send_clicked = st.form_submit_button(
+                    "↑", type="primary", use_container_width=True
+                )
     with think_col:
         if st.button(
             "◉ Think" if st.session_state.ma_mode == "Deep" else "◌ Think",
@@ -1254,8 +1261,6 @@ with st.container(key="ma_chat_composer"):
         if st.button("🎙", key="ma_chat_mic", help="Open or close voice conversation", use_container_width=True):
             st.session_state.ma_show_voice = not st.session_state.ma_show_voice
             st.rerun()
-    with send_col:
-        send_clicked = st.button("↑", key="ma_chat_send", type="primary", use_container_width=True, help="Send message")
 
 # Attachment tray opens from the plus button and sits just above the composer.
 if st.session_state.ma_show_attach_panel:
