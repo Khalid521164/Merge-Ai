@@ -163,17 +163,19 @@ header[data-testid="stHeader"]{
 
 /* Fixed chat composer and explicit plus-button attachment tray. */
 .st-key-ma_chat_composer{
-    position:fixed!important;
-    left:clamp(280px,17.6vw,360px)!important;
-    right:4.5vw!important;
-    bottom:38px!important;
-    z-index:99999!important;
-    background:var(--background-color, white)!important;
-    padding:8px 10px!important;
-    border:1px solid rgba(130,140,150,.35)!important;
-    border-radius:16px!important;
+    position:fixed!important;left:clamp(280px,17.6vw,360px)!important;
+    right:4.5vw!important;bottom:22px!important;z-index:99999!important;
+    background:var(--background-color, white)!important;padding:7px 10px!important;
+    border:1px solid rgba(130,140,150,.28)!important;border-radius:28px!important;
     box-shadow:0 3px 18px rgba(0,0,0,.08)!important;
 }
+.st-key-ma_chat_composer [data-testid="stHorizontalBlock"]{gap:.45rem!important;align-items:center!important}
+.st-key-ma_chat_composer [data-testid="stTextInput"] input{height:44px!important;border:0!important;background:transparent!important;box-shadow:none!important;font-size:15px!important;padding-left:5px!important}
+.st-key-ma_chat_composer [data-testid="stForm"]{border:0!important;padding:0!important;background:transparent!important}
+.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button{height:42px!important;min-height:42px!important;width:42px!important;border-radius:50%!important;font-size:20px!important;padding:0!important}
+.st-key-ma_chat_think button,.st-key-ma_chat_mic button{min-height:38px!important;height:38px!important;border-radius:22px!important;padding:0 9px!important;font-size:13px!important;white-space:nowrap!important}
+.st-key-ma_chat_attach_button button{width:40px!important;min-width:40px!important;height:40px!important;min-height:40px!important;padding:0!important;border-radius:50%!important;font-size:24px!important;font-weight:500!important;line-height:1!important}
+.st-key-ma_chat_attach_button button p{font-size:24px!important;line-height:1!important;margin:0!important}
 .st-key-ma_chat_attach_button button{
     width:44px!important;min-width:44px!important;height:44px!important;
     min-height:44px!important;padding:0!important;border-radius:50%!important;
@@ -327,6 +329,7 @@ defaults = {
     "ma_voice_audio_b64": "",
     "ma_last_voice": "",
     "ma_db_error": "",
+    "ma_show_voice": False,
 }
 
 for key, value in defaults.items():
@@ -1160,7 +1163,8 @@ for i, msg in enumerate(chat["messages"]):
 
 # ===================== LIVE VOICE =====================
 
-st.caption("🎙️ LIVE VOICE")
+if st.session_state.get("ma_show_voice"):
+    st.caption("🎙️ LIVE VOICE")
 
 @st.fragment(run_every=0.5 if (st.session_state.get("ma_voice_job") or {}).get("future") else None)
 def render_live_voice():
@@ -1205,14 +1209,11 @@ def render_live_voice():
             "Check voice_chat.py."
         )
 
-if voice_chat:
-    render_live_voice()
-else:
-
-    st.caption(
-        "Add voice_chat.py to enable "
-        "the live voice orb."
-    )
+if st.session_state.get("ma_show_voice"):
+    if voice_chat:
+        render_live_voice()
+    else:
+        st.caption("Add voice_chat.py to enable the live voice orb.")
 
 voice_event = st.session_state.pop("ma_pending_voice", None)
 
@@ -1229,22 +1230,32 @@ typed_question = ""
 send_clicked = False
 
 with st.container(key="ma_chat_composer"):
-    plus_col, message_col = st.columns([0.8, 11.2], vertical_alignment="bottom")
+    plus_col, message_col, think_col, mic_col, send_col = st.columns(
+        [0.72, 7.8, 1.15, 0.72, 0.78], vertical_alignment="center"
+    )
     with plus_col:
-        if st.button("＋", key="ma_chat_attach_button", help="Add files, photos or camera", type="secondary", use_container_width=True):
+        if st.button("＋", key="ma_chat_attach_button", help="Add photos and files", type="secondary", use_container_width=True):
             st.session_state.ma_show_attach_panel = not st.session_state.ma_show_attach_panel
     with message_col:
-        with st.form("ma_chat_composer_form", clear_on_submit=True, border=False):
-            input_col, send_col = st.columns([11, 0.8], vertical_alignment="bottom")
-            with input_col:
-                typed_question = st.text_input(
-                    "Message",
-                    placeholder="Ask Merge AI anything…",
-                    label_visibility="collapsed",
-                    key="ma_composer_text",
-                )
-            with send_col:
-                send_clicked = st.form_submit_button("↑", type="primary", use_container_width=True)
+        typed_question = st.text_input(
+            "Message", placeholder="Ask Merge AI anything…",
+            label_visibility="collapsed", key="ma_composer_text",
+        )
+    with think_col:
+        if st.button(
+            "◉ Think" if st.session_state.ma_mode == "Deep" else "◌ Think",
+            key="ma_chat_think",
+            type="primary" if st.session_state.ma_mode == "Deep" else "secondary",
+            use_container_width=True, help="Switch between Fast and Deep answers",
+        ):
+            st.session_state.ma_mode = "Fast" if st.session_state.ma_mode == "Deep" else "Deep"
+            st.rerun()
+    with mic_col:
+        if st.button("🎙", key="ma_chat_mic", help="Open or close voice conversation", use_container_width=True):
+            st.session_state.ma_show_voice = not st.session_state.ma_show_voice
+            st.rerun()
+    with send_col:
+        send_clicked = st.button("↑", key="ma_chat_send", type="primary", use_container_width=True, help="Send message")
 
 # Attachment tray opens from the plus button and sits just above the composer.
 if st.session_state.ma_show_attach_panel:
