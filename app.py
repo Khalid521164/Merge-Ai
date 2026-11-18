@@ -150,51 +150,135 @@ header[data-testid="stHeader"]{
     font-weight:750;
 }
 
-/* Fixed Merge AI chat composer with a visible plus button. */
-.st-key-ma_chat_composer{
-    position:fixed!important;
-    left:clamp(280px,17.6vw,360px)!important;
-    right:4.5vw!important;
-    bottom:38px!important;
-    z-index:99999!important;
-    background:var(--background-color, white)!important;
-    padding:8px 10px!important;
-    border:1px solid rgba(130,140,150,.35)!important;
-    border-radius:16px!important;
-    box-shadow:0 3px 18px rgba(0,0,0,.08)!important;
+/* ChatGPT-inspired Merge AI composer and tool menu */
+.st-key-ma_chat_composer {
+    position: fixed !important;
+    left: clamp(280px, 17.6vw, 360px) !important;
+    right: 4.5vw !important;
+    bottom: 28px !important;
+    z-index: 99999 !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    background: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 28px !important;
+    padding: 7px 10px !important;
+    box-shadow: 0 3px 16px rgba(0,0,0,.07) !important;
 }
-.st-key-ma_chat_attach_button button{
-    width:44px!important;min-width:44px!important;height:44px!important;
-    min-height:44px!important;padding:0!important;border-radius:50%!important;
-    font-size:26px!important;font-weight:700!important;line-height:1!important;
+.st-key-ma_chat_composer [data-testid="stHorizontalBlock"] {
+    align-items: center !important;
+    gap: 8px !important;
 }
-.st-key-ma_chat_attach_button button p{
-    font-size:26px!important;line-height:1!important;margin:0!important;
+.st-key-ma_chat_composer [data-testid="stForm"] {
+    border: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
 }
-.st-key-ma_chat_composer [data-testid="stForm"]{
-    border:0!important;padding:0!important;background:transparent!important;
+.st-key-ma_chat_composer [data-testid="stTextInput"] input {
+    height: 42px !important;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    font-size: 15px !important;
+    padding-left: 2px !important;
 }
-.st-key-ma_chat_composer [data-testid="stTextInput"] input{
-    height:44px!important;border:0!important;background:transparent!important;
-    box-shadow:none!important;font-size:15px!important;
+.st-key-ma_chat_composer [data-testid="stTextInput"] input:focus {
+    box-shadow: none !important;
 }
-.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button{
-    height:44px!important;min-height:44px!important;width:44px!important;
-    border-radius:50%!important;font-size:22px!important;padding:0!important;
+.st-key-ma_chat_attach_button button,
+.st-key-ma_chat_think_button button,
+.st-key-ma_chat_voice_button button {
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    border: 0 !important;
+    background: #F3F4F6 !important;
+    color: #30343B !important;
+    font-size: 19px !important;
+    box-shadow: none !important;
 }
-.st-key-ma_chat_attach_panel{
-    position:fixed!important;left:clamp(280px,17.6vw,360px)!important;
-    bottom:104px!important;width:min(440px,calc(100vw - 300px))!important;
-    max-height:60vh!important;overflow-y:auto!important;z-index:100000!important;
-    background:var(--background-color, white)!important;padding:16px!important;
-    border:1px solid rgba(130,140,150,.35)!important;border-radius:16px!important;
-    box-shadow:0 8px 28px rgba(0,0,0,.16)!important;
+.st-key-ma_chat_think_button button {
+    width: auto !important;
+    min-width: 68px !important;
+    border-radius: 20px !important;
+    background: transparent !important;
+    font-size: 13px !important;
+    color: #737780 !important;
 }
-.block-container{padding-bottom:9rem!important}
-@media(max-width:720px){
-    .st-key-ma_chat_composer{left:8px!important;right:8px!important;bottom:10px!important;padding:6px!important}
-    .st-key-ma_chat_attach_panel{left:8px!important;right:8px!important;bottom:82px!important;width:auto!important;max-height:55vh!important}
+.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    border-radius: 50% !important;
+    padding: 0 !important;
+    background: #147353 !important;
+    border: 0 !important;
+    color: #FFFFFF !important;
+    font-size: 20px !important;
 }
+.st-key-ma_chat_attach_panel {
+    position: fixed !important;
+    left: clamp(280px, 17.6vw, 360px) !important;
+    right: auto !important;
+    bottom: 88px !important;
+    width: min(690px, calc(100vw - 310px)) !important;
+    max-height: min(62vh, 390px) !important;
+    overflow-y: auto !important;
+    box-sizing: border-box !important;
+    padding: 8px !important;
+    background: #FFFFFF !important;
+    border: 1px solid #E5E7EB !important;
+    border-radius: 20px !important;
+    box-shadow: 0 10px 32px rgba(0,0,0,.10) !important;
+    z-index: 100000 !important;
+}
+.ma-tool-row {
+    color: #202124;
+    font-size: 13px;
+    line-height: 1.35;
+}
+.st-key-ma_chat_attach_panel [data-testid="stButton"] button {
+    width: 100% !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    border: 0 !important;
+    background: #FFFFFF !important;
+    color: #202124 !important;
+    border-radius: 11px !important;
+    min-height: 38px !important;
+    padding: 7px 10px !important;
+    box-shadow: none !important;
+    font-size: 13px !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stButton"] button:hover {
+    background: #F1F2F3 !important;
+}
+.st-key-ma_chat_attach_panel .ma-tool-desc {
+    color: #8A8D91;
+    font-size: 12px;
+    padding: 0 0 3px 34px;
+    margin-top: -4px;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] {
+    background: #F8F9FA !important;
+    border: 1px dashed #C9CDD2 !important;
+    border-radius: 12px !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stExpander"] {
+    border: 1px solid #E5E7EB !important;
+    border-radius: 12px !important;
+}
+.block-container { padding-bottom: 8rem !important; }
+@media(max-width:720px) {
+    .st-key-ma_chat_composer { left: 10px !important; right: 10px !important; bottom: 10px !important; }
+    .st-key-ma_chat_attach_panel { left: 10px !important; right: 10px !important; bottom: 76px !important; width: auto !important; }
+}
+
 .m-top{
     display:flex;
     align-items:center;
@@ -1389,9 +1473,10 @@ for i, msg in enumerate(chat["messages"]):
 
 # ===================== CHAT INPUT =====================
 
-# One fixed composer: plus button, message field and send button stay together.
+# ChatGPT-inspired composer with a compact tools menu.
 st.session_state.setdefault("ma_upload_version", 0)
 st.session_state.setdefault("ma_show_attach_panel", False)
+st.session_state.setdefault("ma_attach_action", "")
 question = None
 uploaded_files = []
 camera_photo = None
@@ -1399,60 +1484,104 @@ typed_question = ""
 send_clicked = False
 
 with st.container(key="ma_chat_composer"):
-    plus_col, message_col = st.columns([0.8, 11.2], vertical_alignment="bottom")
+    plus_col, message_col, think_col, voice_col = st.columns(
+        [0.75, 8.8, 1.15, 0.75], vertical_alignment="center"
+    )
     with plus_col:
         if st.button(
-            "＋",
-            key="ma_chat_attach_button",
-            help="Add files, photos or use your camera",
-            type="secondary",
+            "＋", key="ma_chat_attach_button",
+            help="Open tools and attachments", type="secondary",
             use_container_width=True,
         ):
             st.session_state.ma_show_attach_panel = not st.session_state.ma_show_attach_panel
+            st.session_state.ma_attach_action = ""
+            st.rerun()
     with message_col:
         with st.form("ma_chat_composer_form", clear_on_submit=True, border=False):
-            input_col, send_col = st.columns([11, 0.8], vertical_alignment="bottom")
-            with input_col:
-                typed_question = st.text_input(
-                    "Message",
-                    placeholder="Ask Merge AI anything…",
-                    label_visibility="collapsed",
-                    key="ma_composer_text",
-                )
-            with send_col:
-                send_clicked = st.form_submit_button(
-                    "↑", type="primary", use_container_width=True
-                )
+            typed_question = st.text_input(
+                "Message", placeholder="Ask Merge AI",
+                label_visibility="collapsed", key="ma_composer_text",
+            )
+            send_clicked = st.form_submit_button("↑", type="primary")
+    with think_col:
+        think_label = "Think" if st.session_state.ma_mode == "Fast" else "Deep"
+        if st.button(think_label, key="ma_chat_think_button", help="Switch answer mode"):
+            st.session_state.ma_mode = "Deep" if st.session_state.ma_mode == "Fast" else "Fast"
+            st.rerun()
+    with voice_col:
+        if st.button("🎙", key="ma_chat_voice_button", help="Start live voice"):
+            st.session_state.ma_voice_screen = True
+            st.rerun()
 
-# The tray opens immediately above the fixed composer.
+# Tools menu sits directly above the composer, like ChatGPT's plus menu.
 if st.session_state.ma_show_attach_panel:
     with st.container(key="ma_chat_attach_panel"):
-        st.markdown(
-            '<div class="ma-upload-heading">'
-            '<div class="ma-upload-icon">＋</div>'
-            '<div><div class="ma-upload-title">Add files to your chat</div>'
-            '<div class="ma-upload-subtitle">Upload a document or image for Merge AI to analyze.</div></div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        uploaded_files = st.file_uploader(
-            "Choose files and photos",
-            type=[
-                "pdf", "docx", "xlsx", "xlsm", "pptx", "csv", "tsv",
-                "txt", "md", "json", "py", "js", "html", "css", "xml",
-                "yaml", "yml", "log", "png", "jpg", "jpeg", "webp", "gif",
-            ],
-            accept_multiple_files=True,
-            key="ma_chat_files_" + str(st.session_state.ma_upload_version),
-            label_visibility="collapsed",
-            help="Supported: PDF, Office documents, spreadsheets, code, and images.",
-        )
-        with st.expander("Take a photo with your camera", expanded=False):
-            camera_photo = st.camera_input(
-                "Take a photo",
-                key="ma_chat_camera_" + str(st.session_state.ma_upload_version),
-                label_visibility="collapsed",
+        st.markdown('<div class="ma-tool-row">', unsafe_allow_html=True)
+        if st.button("📎   Add photos & files     Upload from computer", key="ma_tool_files"):
+            st.session_state.ma_attach_action = "files"
+            st.rerun()
+        if st.button("▣   Add from library     Browse and search your files", key="ma_tool_library"):
+            st.session_state.ma_attach_action = "library"
+        if st.button("🖼   Create image     Visualize anything", key="ma_tool_image"):
+            st.session_state.ma_attach_action = "image"
+        if st.button("▣   Add browser tabs     Use open tabs", key="ma_tool_tabs"):
+            st.session_state.ma_attach_action = "tabs"
+        if st.button("◎   Web search     Find real-time news and info", key="ma_tool_web"):
+            st.session_state.ma_web = not st.session_state.ma_web
+            st.session_state.ma_attach_action = "web"
+            st.rerun()
+        if st.button("✦   Deep research     Get a detailed report", key="ma_tool_research"):
+            st.session_state.ma_mode = "Deep"
+            st.session_state.ma_web = True
+            st.session_state.ma_attach_action = "research"
+            st.rerun()
+        if st.button("〰   Sketch     Draw and attach an image", key="ma_tool_sketch"):
+            st.session_state.ma_attach_action = "sketch"
+        if st.button("◈   Thinking     For detailed answers", key="ma_tool_thinking"):
+            st.session_state.ma_mode = "Deep"
+            st.session_state.ma_attach_action = "thinking"
+            st.rerun()
+        if st.button("▶   Runway     Generate with AI video tools", key="ma_tool_runway"):
+            st.session_state.ma_attach_action = "runway"
+        if st.button("🌐   Chrome     Browse with a connected browser", key="ma_tool_chrome"):
+            st.session_state.ma_attach_action = "chrome"
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        action = st.session_state.ma_attach_action
+        if action == "files":
+            st.divider()
+            uploaded_files = st.file_uploader(
+                "Upload files and photos",
+                type=[
+                    "pdf", "docx", "xlsx", "xlsm", "pptx", "csv", "tsv",
+                    "txt", "md", "json", "py", "js", "html", "css", "xml",
+                    "yaml", "yml", "log", "png", "jpg", "jpeg", "webp", "gif",
+                ],
+                accept_multiple_files=True,
+                key="ma_chat_files_" + str(st.session_state.ma_upload_version),
+                help="Upload documents, spreadsheets, code, or images.",
             )
+            with st.expander("Take a photo with your camera", expanded=False):
+                camera_photo = st.camera_input(
+                    "Take a photo",
+                    key="ma_chat_camera_" + str(st.session_state.ma_upload_version),
+                )
+        elif action == "web":
+            st.caption("Web search is " + ("on" if st.session_state.ma_web else "off") + " for the next answer.")
+        elif action == "research":
+            st.caption("Deep mode and web search are enabled for your next question.")
+        elif action == "thinking":
+            st.caption("Deep answer mode is enabled.")
+        elif action in ("library", "image", "tabs", "sketch", "runway", "chrome"):
+            messages = {
+                "library": "Library browsing is not connected in this version yet.",
+                "image": "Image generation is not connected in this version yet.",
+                "tabs": "Browser-tab access needs a connected browser integration.",
+                "sketch": "The sketch canvas is not available yet.",
+                "runway": "Runway needs an authorized integration before it can be used.",
+                "chrome": "Chrome browsing needs an authorized browser connection.",
+            }
+            st.caption(messages[action])
 
 attachment_files = list(uploaded_files or [])
 if camera_photo is not None:
