@@ -1119,6 +1119,86 @@ if st.session_state.ma_voice_screen:
     }
 }
 
+
+/* Final attachment popover polish — compact, aligned above the composer */
+.st-key-ma_chat_attach_panel {
+    position: fixed !important;
+    left: clamp(280px, 17.6vw, 360px) !important;
+    right: auto !important;
+    bottom: 104px !important;
+    width: min(420px, calc(100vw - 310px)) !important;
+    max-height: min(52vh, 430px) !important;
+    overflow-y: auto !important;
+    box-sizing: border-box !important;
+    padding: 18px !important;
+    background: #FFFFFF !important;
+    border: 1px solid #E1E9E4 !important;
+    border-radius: 18px !important;
+    box-shadow: 0 14px 38px rgba(24, 45, 34, .14) !important;
+    z-index: 100000 !important;
+}
+.st-key-ma_chat_attach_panel > div {
+    gap: 10px !important;
+}
+.st-key-ma_chat_attach_panel .ma-upload-heading {
+    padding: 0 0 12px !important;
+    border-bottom: 1px solid #EDF1EE !important;
+    margin-bottom: 4px !important;
+}
+.st-key-ma_chat_attach_panel .ma-upload-icon {
+    width: 38px !important;
+    height: 38px !important;
+    flex-basis: 38px !important;
+    border-radius: 12px !important;
+    font-size: 22px !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploader"] {
+    margin: 0 !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] {
+    min-height: 86px !important;
+    padding: 12px !important;
+    background: #F8FBF9 !important;
+    border: 1px dashed #B8CCBF !important;
+    border-radius: 13px !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] > div {
+    gap: 8px !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] small {
+    color: #718078 !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stExpander"] {
+    margin-top: 4px !important;
+    border: 1px solid #E5ECE7 !important;
+    border-radius: 12px !important;
+    background: #FFFFFF !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stExpander"] summary {
+    padding: 10px 12px !important;
+    color: #315441 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stCameraInput"] video,
+.st-key-ma_chat_attach_panel [data-testid="stCameraInput"] img {
+    max-height: 180px !important;
+    object-fit: cover !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stCameraInput"] button {
+    min-height: 38px !important;
+}
+@media (max-width: 720px) {
+    .st-key-ma_chat_attach_panel {
+        left: 12px !important;
+        right: 12px !important;
+        bottom: 82px !important;
+        width: auto !important;
+        max-height: 48vh !important;
+        padding: 14px !important;
+    }
+}
+
 </style>
         """,
         unsafe_allow_html=True,
