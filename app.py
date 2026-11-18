@@ -1005,7 +1005,97 @@ if st.session_state.ma_voice_screen:
         [data-testid="stSidebar"] {display:none!important}
         [data-testid="stHeader"] {display:none!important}
         .block-container {max-width:100%!important;padding:0!important;margin:0!important}
-        </style>
+        
+/* Professional attachment tray */
+.st-key-ma_chat_attach_panel {
+    background: #F7F8F7 !important;
+    border: 1px solid #DCE7E0 !important;
+    border-radius: 20px !important;
+    padding: 18px !important;
+    box-shadow: 0 16px 42px rgba(18, 48, 35, 0.18) !important;
+    width: min(460px, calc(100vw - 32px)) !important;
+    max-height: min(68vh, 560px) !important;
+}
+
+.ma-upload-heading {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 2px 1px 15px;
+}
+.ma-upload-icon {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 13px;
+    background: #E5F1EA;
+    color: #147353;
+    font-size: 25px;
+    font-weight: 600;
+}
+.ma-upload-title {
+    color: #1D3027;
+    font-size: 16px;
+    line-height: 1.3;
+    font-weight: 700;
+}
+.ma-upload-subtitle {
+    color: #718078;
+    font-size: 12px;
+    line-height: 1.45;
+    margin-top: 3px;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploader"] {
+    margin-top: 2px;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] {
+    background: #FFFFFF !important;
+    border: 1.5px dashed #AFC8B9 !important;
+    border-radius: 15px !important;
+    min-height: 112px !important;
+    transition: border-color .15s ease, background .15s ease;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"]:hover {
+    border-color: #147353 !important;
+    background: #F8FCF9 !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] button {
+    border: 1px solid #B9D0C2 !important;
+    border-radius: 10px !important;
+    color: #145D43 !important;
+    background: #F4FAF6 !important;
+    font-weight: 600 !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stExpander"] {
+    margin-top: 12px;
+    border: 1px solid #DCE7E0 !important;
+    border-radius: 13px !important;
+    background: #FFFFFF !important;
+    overflow: hidden;
+}
+.st-key-ma_chat_attach_panel [data-testid="stExpander"] summary {
+    color: #294638 !important;
+    font-weight: 600 !important;
+    padding: 11px 13px !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stCameraInput"] {
+    border-radius: 12px !important;
+    overflow: hidden;
+}
+@media(max-width:720px) {
+    .st-key-ma_chat_attach_panel {
+        left: 8px !important;
+        right: 8px !important;
+        bottom: 82px !important;
+        width: auto !important;
+        max-height: 62vh !important;
+        padding: 14px !important;
+    }
+}
+
+</style>
         """,
         unsafe_allow_html=True,
     )
@@ -1233,7 +1323,14 @@ with st.container(key="ma_chat_composer"):
 # The tray opens immediately above the fixed composer.
 if st.session_state.ma_show_attach_panel:
     with st.container(key="ma_chat_attach_panel"):
-        st.markdown("**Add to your message**")
+        st.markdown(
+            '<div class="ma-upload-heading">'
+            '<div class="ma-upload-icon">＋</div>'
+            '<div><div class="ma-upload-title">Add files to your chat</div>'
+            '<div class="ma-upload-subtitle">Upload a document or image for Merge AI to analyze.</div></div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         uploaded_files = st.file_uploader(
             "Choose files and photos",
             type=[
@@ -1243,12 +1340,15 @@ if st.session_state.ma_show_attach_panel:
             ],
             accept_multiple_files=True,
             key="ma_chat_files_" + str(st.session_state.ma_upload_version),
-            help="Up to 12 MB combined. Document text goes to your selected AI provider; photos are analyzed by Gemini.",
+            label_visibility="collapsed",
+            help="Supported: PDF, Office documents, spreadsheets, code, and images.",
         )
-        camera_photo = st.camera_input(
-            "Take a photo",
-            key="ma_chat_camera_" + str(st.session_state.ma_upload_version),
-        )
+        with st.expander("Take a photo with your camera", expanded=False):
+            camera_photo = st.camera_input(
+                "Take a photo",
+                key="ma_chat_camera_" + str(st.session_state.ma_upload_version),
+                label_visibility="collapsed",
+            )
 
 attachment_files = list(uploaded_files or [])
 if camera_photo is not None:
