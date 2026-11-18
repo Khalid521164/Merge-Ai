@@ -43,6 +43,7 @@ from cloud_history import CloudHistory, CloudHistoryError
 from personal_memory import suggest_memories, relevant_memories, is_memory_question, is_forget_request
 from about_merge_ai import PROJECT_CONTEXT, CREATOR_NAME, CREATED_FOR, PURPOSE, answer_project_question
 from file_studio import read_uploads, analyze_images
+from social_integrations import get_social_integrations
 
 try:
     from merge_ai import MergeAI, default_providers
@@ -779,6 +780,29 @@ with st.sidebar:
                     st.error(
                         "Could not delete memory."
                     )
+
+    # ================= SOCIAL INTEGRATIONS =================
+
+    with st.expander("🌐 Social Hub — Meta integrations"):
+        social_status = get_social_integrations(secret)
+        st.caption(
+            "Connect business-owned social accounts after the project owner "
+            "sets up a Meta developer app. Nothing is connected or published yet."
+        )
+        for platform_key in ("facebook", "instagram", "whatsapp"):
+            item = social_status[platform_key]
+            st.markdown("**" + item["name"] + "**")
+            st.caption(item["description"])
+            if item["ready_for_setup"]:
+                st.success("Configuration present — OAuth and permission review still required.")
+            else:
+                st.info("Setup required — Meta app configuration is not complete.")
+            st.link_button("Official setup guide", item["docs_url"])
+        st.caption(
+            "Publishing, comment replies, deletes, and outbound messages will "
+            "always require a preview and a separate confirmation."
+        )
+        st.markdown("[View the Social Hub implementation plan](https://github.com/Khalid521164/Merge-Ai/blob/khalid/same-background-color/META_SOCIAL_SETUP.md)")
 
     with st.expander("ℹ️ About Merge AI"):
         st.write("**Created by:** " + CREATOR_NAME)
