@@ -298,6 +298,27 @@ body,
     background: #F7F8F7 !important;
 }
 
+
+/* Hide Streamlit-hosted toolbar and floating status chrome. */
+div[data-testid="stToolbar"],
+div[data-testid="stStatusWidget"],
+div[data-testid="stDecoration"],
+.stAppDeployButton {
+    display: none !important;
+    visibility: hidden !important;
+}
+
+/* Keep the chat send action visible, but match Merge AI branding. */
+.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
+    background: #147353 !important;
+    border: 1px solid #147353 !important;
+    color: #ffffff !important;
+}
+.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button:hover {
+    background: #105f45 !important;
+    border-color: #105f45 !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
