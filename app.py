@@ -276,6 +276,28 @@ header[data-testid="stHeader"]{
         color:#f5f5f5;
     }
 }
+
+/* Merge AI: keep the sidebar and chat canvas the same color */
+html,
+body,
+.stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+[data-testid="stSidebar"],
+[data-testid="stSidebarContent"],
+[data-testid="stHeader"] {
+    background-color: #F7F8F7 !important;
+}
+
+[data-testid="stSidebar"] {
+    border-right: 1px solid #E6EBE8 !important;
+}
+
+.st-key-ma_chat_composer {
+    background: #F7F8F7 !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
