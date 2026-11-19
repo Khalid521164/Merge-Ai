@@ -2,9 +2,9 @@
 toolbarMode = "minimal"
 
 [theme]
-base = "dark"
-primaryColor = "#18A879"
-backgroundColor = "#070B10"
-secondaryBackgroundColor = "#111B27"
-textColor = "#EAF0F6"
+base = "light"
+primaryColor = "#147353"
+backgroundColor = "#F7F8F7"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1B201E"
 font = "sans serif"
