@@ -596,10 +596,12 @@ export default function(component) {
 
       const setup = {
         model: "models/gemini-3.8-live",
-        responseModalities: ["AUDIO"],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: "Puck" }
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: "Puck" }
+            }
           }
         },
         inputAudioTranscription: {},
