@@ -325,8 +325,7 @@ export default function(component) {
 
     state.stream = stream;
     state.source = state.ctx.createMediaStreamSource(state.stream);
-    // 2048 frames at 48 kHz is about 43 ms per packet, reducing input latency.
-    // About 85–93 ms per chunk on common 48 kHz / 44.1 kHz phone audio devices.
+    // 4096 frames gives roughly 85–93 ms per packet on common 48 kHz / 44.1 kHz phone audio devices.
     state.processor = state.ctx.createScriptProcessor(4096, 1, 1);
 
     state.processor.onaudioprocess = (event) => {
