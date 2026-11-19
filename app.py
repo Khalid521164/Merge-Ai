@@ -780,6 +780,124 @@ div[data-testid="stDecoration"],
     }
 }
 
+
+/* ===== Merge AI mobile contrast + composer repair (Nov 2026) ===== */
+:root, html, body { color-scheme: light !important; }
+html, body, .stApp, [data-testid="stAppViewContainer"],
+[data-testid="stMain"], [data-testid="stMainBlockContainer"],
+[data-testid="stSidebar"], [data-testid="stSidebarContent"] {
+    background: #F7F8F7 !important;
+    color: #202124 !important;
+}
+[data-testid="stMain"], [data-testid="stMain"] p,
+[data-testid="stMain"] li, [data-testid="stMain"] label,
+[data-testid="stMain"] h1, [data-testid="stMain"] h2,
+[data-testid="stMain"] h3, [data-testid="stMain"] h4,
+[data-testid="stSidebar"], [data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label, [data-testid="stSidebar"] span {
+    color: #202124 !important;
+}
+.m-top, .m-title, .m-name, .m-welcome-title {
+    color: #202124 !important;
+    opacity: 1 !important;
+}
+.m-model { color: #66736c !important; opacity: 1 !important; }
+.m-footer { color: #68736d !important; }
+.m-user-text { color: #202124 !important; }
+.st-key-ma_chat_composer {
+    background: #FFFFFF !important;
+    border: 1px solid #E1E7E3 !important;
+    box-shadow: 0 5px 22px rgba(20,40,30,.10) !important;
+}
+.st-key-ma_chat_composer [data-testid="stTextInput"] input {
+    color: #202124 !important;
+    -webkit-text-fill-color: #202124 !important;
+}
+.st-key-ma_chat_composer [data-testid="stTextInput"] input::placeholder {
+    color: #747D77 !important;
+    -webkit-text-fill-color: #747D77 !important;
+    opacity: 1 !important;
+}
+.st-key-ma_chat_attach_button button,
+.st-key-ma_chat_think_button button,
+.st-key-ma_chat_voice_button button {
+    color: #26332C !important;
+    background: #F0F3F1 !important;
+}
+.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
+    color: #FFFFFF !important;
+    background: #147353 !important;
+    border-color: #147353 !important;
+}
+.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button:hover {
+    color: #FFFFFF !important;
+    background: #105F45 !important;
+}
+.st-key-ma_chat_think_button button { color: #4D5A53 !important; }
+.stAppDeployButton, [data-testid="stAppDeployButton"] {
+    display: none !important;
+}
+@media (max-width: 768px) {
+    .block-container {
+        padding: 12px 12px calc(92px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+    .m-top { margin: 2px 0 10px !important; }
+    .m-title { color: #202124 !important; font-size: 17px !important; }
+    .m-model { color: #66736c !important; font-size: 10px !important; }
+    .m-welcome { min-height: min(40dvh, 330px) !important; }
+    .m-welcome-title { color: #202124 !important; }
+    .st-key-ma_chat_composer {
+        left: 8px !important;
+        right: 8px !important;
+        bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+        width: auto !important;
+        padding: 6px 7px !important;
+        border-radius: 23px !important;
+        box-sizing: border-box !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        gap: 4px !important;
+        width: 100% !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"] {
+        min-width: 0 !important;
+        padding: 0 !important;
+        flex-shrink: 0 !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(1) { flex: 0 0 36px !important; }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(2) { flex: 1 1 auto !important; }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(3) { flex: 0 0 54px !important; }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(4) { flex: 0 0 36px !important; }
+    .st-key-ma_chat_composer [data-testid="stForm"] { width: 100% !important; min-width: 0 !important; }
+    .st-key-ma_chat_composer [data-testid="stTextInput"] input {
+        height: 40px !important;
+        font-size: 14px !important;
+        padding: 0 3px !important;
+    }
+    .st-key-ma_chat_attach_button button,
+    .st-key-ma_chat_voice_button button,
+    .st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
+        width: 34px !important;
+        min-width: 34px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+        border-radius: 50% !important;
+    }
+    .st-key-ma_chat_think_button button {
+        width: 54px !important;
+        min-width: 54px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        font-size: 11px !important;
+        padding: 0 2px !important;
+        white-space: nowrap !important;
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
