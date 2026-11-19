@@ -20,10 +20,36 @@ st.set_page_config(
 # ===================== SECRETS =====================
 
 def secret(name, default=""):
+    """Read Streamlit Secrets first, then fall back to environment variables."""
     try:
-        return str(st.secrets.get(name, default))
+        value = st.secrets.get(name)
+        if value is not None and str(value).strip():
+            return str(value).strip()
     except Exception:
-        return os.environ.get(name, default)
+        pass
+
+    value = os.environ.get(name)
+    if value is not None and str(value).strip():
+        return str(value).strip()
+    return default
+
+
+def cloudflare_secret(name, nested_key, default=""):
+    """Accept top-level Streamlit keys or a Cloudflare TOML section."""
+    value = secret(name, "")
+    if value:
+        return value
+
+    try:
+        section = st.secrets.get("cloudflare", {})
+        if hasattr(section, "get"):
+            value = section.get(nested_key) or section.get(name)
+            if value is not None and str(value).strip():
+                return str(value).strip()
+    except Exception:
+        pass
+
+    return default
 
 
 for name in (
@@ -1700,25 +1726,52 @@ if st.session_state.ma_show_attach_panel:
         elif action == "image":
             st.divider()
             st.markdown("#### Create an image")
-            cloudflare_account_id = secret("CLOUDFLARE_ACCOUNT_ID")
-            cloudflare_api_token = secret("CLOUDFLARE_API_TOKEN")
-            if not cloudflare_account_id or not cloudflare_api_token:
+            cloudflare_account_id = cloudflare_secret(
+                "CLOUDFLARE_ACCOUNT_ID", "account_id"
+            )
+            cloudflare_api_token = cloudflare_secret(
+                "CLOUDFLARE_API_TOKEN", "api_token"
+            )
+            account_id_found = bool(cloudflare_account_id)
+            api_token_found = bool(cloudflare_api_token)
+
+            if not account_id_found or not api_token_found:
                 st.info(
-                    "Free image generation uses Cloudflare Workers AI. "
-                    "The account owner needs to connect a Cloudflare Free account first."
+                    "Merge AI cannot detect all Cloudflare credentials in this app's Secrets."
                 )
                 st.markdown(
-                    "[Open Cloudflare Workers AI setup](https://dash.cloudflare.com/?to=/:account/workers/ai)"
+                    "**Credential check**  \n"
+                    + "Account ID: " + ("✅ detected" if account_id_found else "❌ missing") + "  \n"
+                    + "API token: " + ("✅ detected" if api_token_found else "❌ missing")
                 )
                 st.caption(
-                    "In Workers AI, choose **Use REST API → Create a Workers AI API Token**. "
-                    "Then add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to this app's "
-                    "Streamlit Secrets. Never paste the token into chat or GitHub."
+                    "Add the credentials to this exact Streamlit app under Manage app → "
+                    "Settings → Secrets. Values are checked privately and never displayed."
+                )
+                st.markdown("**Format A — top-level Secrets**")
+                st.code(
+                    'CLOUDFLARE_ACCOUNT_ID = "your-account-id"\n'
+                    'CLOUDFLARE_API_TOKEN = "your-token"\n'
+                    'CLOUDFLARE_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"',
+                    language="toml",
+                )
+                st.markdown("**Format B — a cloudflare section**")
+                st.code(
+                    '[cloudflare]\n'
+                    'account_id = "your-account-id"\n'
+                    'api_token = "your-token"\n'
+                    'image_model = "@cf/black-forest-labs/flux-1-schnell"',
+                    language="toml",
                 )
                 st.caption(
-                    "Cloudflare includes 10,000 free neurons each day. On the Free plan, "
-                    "image requests stop when the daily allowance is exhausted; they do not "
-                    "automatically switch to paid usage."
+                    "After saving, reboot this app. Do not paste the API token into chat or GitHub."
+                )
+                st.caption(
+                    "Cloudflare Free includes 10,000 neurons each day. Requests stop when "
+                    "the daily allowance is exhausted; they do not automatically switch to paid usage."
+                )
+                st.markdown(
+                    "[Cloudflare Workers AI REST API instructions](https://developers.cloudflare.com/workers-ai/get-started/rest-api/)"
                 )
             else:
                 image_prompt = st.text_area(
@@ -1728,8 +1781,8 @@ if st.session_state.ma_show_attach_panel:
                     height=105,
                     key="ma_image_prompt",
                 )
-                image_model = secret(
-                    "CLOUDFLARE_IMAGE_MODEL",
+                image_model = cloudflare_secret(
+                    "CLOUDFLARE_IMAGE_MODEL", "image_model",
                     "@cf/black-forest-labs/flux-1-schnell",
                 )
                 st.caption(
@@ -1777,8 +1830,12 @@ if st.session_state.ma_show_attach_panel:
                             st.rerun()
                         except ImageGenerationError as exc:
                             st.error(str(exc))
-                        except Exception:
-                            st.error("Something went wrong while creating the image. Please try again.")
+                        except Exception as exc:
+                            st.error(
+                                "Unexpected image-generation error ("
+                                + type(exc).__name__
+                                + "). Please reboot the app and try again."
+                            )
         elif action in ("library", "tabs", "sketch", "runway", "chrome"):
             messages = {
                 "library": "Library browsing is not connected in this version yet.",
