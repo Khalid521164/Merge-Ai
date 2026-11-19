@@ -645,7 +645,7 @@ div[data-testid="stDecoration"],
     }
     .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) {
         display: grid !important;
-        grid-template-columns: 36px minmax(0, 1fr) 62px 36px !important;
+        grid-template-columns: 40px minmax(0, 1fr) 58px 40px !important;
         align-items: center !important;
         gap: 3px !important;
         width: 100% !important;
@@ -696,6 +696,12 @@ div[data-testid="stDecoration"],
         min-height: 34px !important;
         padding: 0 !important;
         border-radius: 50% !important;
+    }
+    .st-key-ma_chat_voice_button button {
+        background: #E3F3EC !important;
+        color: #147353 !important;
+        touch-action: manipulation !important;
+        -webkit-tap-highlight-color: transparent !important;
     }
     .st-key-ma_chat_think_button button {
         width: 58px !important;
@@ -756,7 +762,7 @@ div[data-testid="stDecoration"],
 
 @media (max-width: 390px) {
     .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) {
-        grid-template-columns: 34px minmax(0, 1fr) 54px 34px !important;
+        grid-template-columns: 36px minmax(0, 1fr) 50px 36px !important;
         gap: 2px !important;
     }
     .st-key-ma_chat_think_button button {
@@ -816,7 +822,7 @@ for key, value in defaults.items():
 # Rotate any token minted by the previous, unconstrained Live API flow.
 # Existing Streamlit sessions survive app deployments, so changing the
 # token version forces one fresh token after this release.
-if st.session_state.ma_gemini_token_version != "websocket-setup-v3":
+if st.session_state.ma_gemini_token_version != "websocket-setup-v4":
     st.session_state.ma_gemini_token = ""
     st.session_state.ma_gemini_token_error = ""
     st.session_state.ma_gemini_token_version = "websocket-setup-v3"
@@ -1579,7 +1585,6 @@ if st.session_state.ma_voice_screen:
                                     break
                             elif len(st.session_state.ma_memory_suggestions) < 6:
                                 st.session_state.ma_memory_suggestions.append(suggestion)
-                st.rerun()
     else:
         st.error(st.session_state.ma_gemini_token_error or "Could not start Gemini Live.")
         if st.button("Try again", key="retry_gemini_live"):
@@ -1754,7 +1759,13 @@ with st.container(key="ma_chat_composer"):
             st.session_state.ma_mode = "Deep" if st.session_state.ma_mode == "Fast" else "Fast"
             st.rerun()
     with voice_col:
-        if st.button("🎙", key="ma_chat_voice_button", help="Start live voice"):
+        if st.button(
+            "🎙",
+            key="ma_chat_voice_button",
+            help="Start a live voice conversation. On Android, open Merge AI in Chrome and allow microphone access.",
+            type="secondary",
+            use_container_width=True,
+        ):
             st.session_state.ma_voice_screen = True
             st.rerun()
 
