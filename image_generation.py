@@ -8,6 +8,7 @@ by the account owner before this module can be called from the UI.
 from __future__ import annotations
 
 import base64
+import binascii
 import os
 import re
 
@@ -17,10 +18,35 @@ import requests
 DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-lite-image"
 MAX_PROMPT_CHARS = 1500
 REQUEST_TIMEOUT = (15, 120)
+INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+API_REVISION = "2026-05-20"
 
 
 class ImageGenerationError(Exception):
     """A safe, user-facing image-generation error."""
+
+
+def _output_blocks(data: dict) -> list[dict]:
+    """Read the current Interactions API steps, with compatibility fallbacks."""
+    blocks = []
+    for step in data.get("steps") or data.get("outputs") or []:
+        if not isinstance(step, dict):
+            continue
+        content = step.get("content")
+        if isinstance(content, list):
+            blocks.extend(item for item in content if isinstance(item, dict))
+        elif isinstance(content, dict):
+            blocks.append(content)
+
+    # Some SDK-shaped responses expose this convenience field directly.
+    image = data.get("output_image") or data.get("outputImage")
+    if isinstance(image, dict):
+        blocks.append({
+            "type": "image",
+            "data": image.get("data"),
+            "mime_type": image.get("mime_type") or image.get("mimeType"),
+        })
+    return blocks
 
 
 def generate_image(prompt: str, api_key: str, model: str | None = None) -> tuple[bytes, str, str]:
@@ -38,20 +64,21 @@ def generate_image(prompt: str, api_key: str, model: str | None = None) -> tuple
     if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", model):
         raise ImageGenerationError("The configured Gemini image model name is invalid.")
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    # The current Gemini image-generation guide uses the Interactions API.
+    # store=false avoids retaining this one-off generation as a stored interaction.
     payload = {
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-        },
+        "model": model,
+        "input": prompt,
+        "store": False,
     }
 
     try:
         response = requests.post(
-            url,
+            INTERACTIONS_URL,
             headers={
                 "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
+                "Api-Revision": API_REVISION,
             },
             json=payload,
             timeout=REQUEST_TIMEOUT,
@@ -73,39 +100,32 @@ def generate_image(prompt: str, api_key: str, model: str | None = None) -> tuple
     except ValueError as exc:
         raise ImageGenerationError("Gemini returned an unreadable response. Please try again.") from exc
 
-    candidates = data.get("candidates") or []
-    if not candidates:
-        raise ImageGenerationError("Gemini did not return an image. Try a clearer or simpler description.")
+    if data.get("status") == "failed":
+        raise ImageGenerationError("Gemini could not complete this image request. Please try again with a different description.")
 
-    parts = (candidates[0].get("content") or {}).get("parts") or []
-    for part in parts:
-        if not isinstance(part, dict):
-            continue
-        inline_data = part.get("inlineData") or part.get("inline_data")
-        if not isinstance(inline_data, dict):
-            continue
-        encoded = inline_data.get("data")
-        mime_type = inline_data.get("mimeType") or inline_data.get("mime_type") or "image/png"
-        if not isinstance(encoded, str) or not mime_type.startswith("image/"):
-            continue
-        try:
-            image_bytes = base64.b64decode(encoded, validate=True)
-        except (ValueError, base64.binascii.Error) as exc:
-            raise ImageGenerationError("Gemini returned an invalid image. Please try again.") from exc
-        if not image_bytes:
-            continue
-        note = next(
-            (str(item.get("text", "")).strip() for item in parts
-             if isinstance(item, dict) and item.get("text")),
-            "Here is the image you asked Merge AI to create.",
-        )
-        return image_bytes, mime_type, note[:1000]
+    blocks = _output_blocks(data)
+    for part in blocks:
+        part_type = str(part.get("type") or "").lower()
+        encoded = part.get("data")
+        mime_type = part.get("mime_type") or part.get("mimeType") or "image/png"
+        if part_type == "image" and isinstance(encoded, str) and mime_type.startswith("image/"):
+            try:
+                image_bytes = base64.b64decode(encoded, validate=True)
+            except (ValueError, binascii.Error) as exc:
+                raise ImageGenerationError("Gemini returned an invalid image. Please try again.") from exc
+            if image_bytes:
+                note = next(
+                    (str(item.get("text", "")).strip() for item in blocks
+                     if item.get("type") == "text" and item.get("text")),
+                    "Here is the image you asked Merge AI to create.",
+                )
+                return image_bytes, mime_type, note[:1000]
 
     # A safety block or unsupported prompt can yield text without image bytes.
     explanation = " ".join(
         str(item.get("text", "")).strip()
-        for item in parts
-        if isinstance(item, dict) and item.get("text")
+        for item in blocks
+        if item.get("type") == "text" and item.get("text")
     ).strip()
     if explanation:
         raise ImageGenerationError(explanation[:500])
