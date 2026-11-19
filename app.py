@@ -29,7 +29,7 @@ def secret(name, default=""):
 for name in (
     "GEMINI_API_KEY", "GROQ_API_KEY",
     "OPENROUTER_API_KEY", "TAVILY_API_KEY",
-    "GEMINI_MODEL", "GEMINI_IMAGE_MODEL", "GROQ_MODEL",
+    "GEMINI_MODEL", "GROQ_MODEL",
     "OPENROUTER_MODEL",
 ):
     value = secret(name)
@@ -44,6 +44,7 @@ from personal_memory import suggest_memories, relevant_memories, is_memory_quest
 from about_merge_ai import PROJECT_CONTEXT, CREATOR_NAME, CREATED_FOR, PURPOSE, answer_project_question
 from file_studio import read_uploads, analyze_images
 from social_integrations import get_social_integrations
+from image_generation import generate_image, ImageGenerationError
 
 try:
     from merge_ai import MergeAI, default_providers
@@ -404,6 +405,255 @@ div[data-testid="stDecoration"],
     border-color: #105f45 !important;
 }
 
+
+/* ===== Phone layout: full-width chat, drawer sidebar, compact composer ===== */
+@media (max-width: 768px) {
+    html, body, .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stMain"] {
+        width: 100% !important;
+        min-width: 0 !important;
+        min-height: 100dvh !important;
+        overflow-x: hidden !important;
+    }
+
+    /* Sidebar becomes an overlay drawer instead of squeezing the chat. */
+    [data-testid="stSidebar"][aria-expanded="true"] {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        bottom: 0 !important;
+        width: min(84vw, 300px) !important;
+        min-width: min(84vw, 300px) !important;
+        max-width: min(84vw, 300px) !important;
+        z-index: 100010 !important;
+        box-shadow: 12px 0 32px rgba(0,0,0,.16) !important;
+    }
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+        z-index: 100020 !important;
+    }
+
+    .block-container {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding: 12px 12px calc(112px + env(safe-area-inset-bottom, 0px)) !important;
+        margin: 0 !important;
+    }
+
+    .m-top {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 auto 12px !important;
+        padding: 2px 1px 10px !important;
+        gap: 6px !important;
+        flex-wrap: wrap !important;
+    }
+    .m-title {
+        font-size: 16px !important;
+        line-height: 1.3 !important;
+    }
+    .m-model {
+        font-size: 10px !important;
+        max-width: 52% !important;
+        text-align: right !important;
+        overflow-wrap: anywhere !important;
+    }
+
+    .m-welcome {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-height: min(43dvh, 360px) !important;
+        margin: 0 auto !important;
+        padding: 18px 8px !important;
+        gap: 12px !important;
+    }
+    .m-welcome .m-logo {
+        width: 48px !important;
+        height: 48px !important;
+        font-size: 24px !important;
+        border-radius: 14px !important;
+    }
+    .m-welcome-title {
+        font-size: clamp(21px, 6vw, 25px) !important;
+        line-height: 1.2 !important;
+        letter-spacing: -.45px !important;
+    }
+
+    .m-user-line,
+    .m-assistant {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+    .m-user-line {
+        margin-top: 14px !important;
+        margin-bottom: 8px !important;
+    }
+    .m-user-text {
+        max-width: 94% !important;
+        padding: 10px 13px !important;
+        border-radius: 17px !important;
+        font-size: 14px !important;
+        line-height: 1.5 !important;
+    }
+    .m-assistant {
+        margin-top: 20px !important;
+        margin-bottom: 8px !important;
+        font-size: 12px !important;
+    }
+    .m-footer {
+        padding-top: 10px !important;
+        font-size: 10px !important;
+    }
+
+    /* The composer spans the phone width and respects the bottom safe area. */
+    .st-key-ma_chat_composer {
+        left: 8px !important;
+        right: 8px !important;
+        width: auto !important;
+        max-width: none !important;
+        transform: none !important;
+        bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+        padding: 5px 7px !important;
+        gap: 4px !important;
+        border-radius: 24px !important;
+        box-shadow: 0 4px 20px rgba(0,0,0,.09) !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) {
+        display: grid !important;
+        grid-template-columns: 36px minmax(0, 1fr) 62px 36px !important;
+        align-items: center !important;
+        gap: 3px !important;
+        width: 100% !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"] {
+        width: auto !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        flex: none !important;
+        padding: 0 1px !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stForm"] {
+        min-width: 0 !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_send_button) {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) 36px !important;
+        align-items: center !important;
+        gap: 4px !important;
+        width: 100% !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_send_button) > [data-testid="column"] {
+        width: auto !important;
+        min-width: 0 !important;
+        flex: none !important;
+        padding: 0 !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stTextInput"] {
+        min-width: 0 !important;
+        margin: 0 !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stTextInput"] input {
+        width: 100% !important;
+        min-width: 0 !important;
+        height: 40px !important;
+        padding: 0 3px !important;
+        font-size: 14px !important;
+    }
+    .st-key-ma_chat_attach_button button,
+    .st-key-ma_chat_voice_button button,
+    .st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
+        width: 34px !important;
+        min-width: 34px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        padding: 0 !important;
+        border-radius: 50% !important;
+    }
+    .st-key-ma_chat_think_button button {
+        width: 58px !important;
+        min-width: 58px !important;
+        min-height: 34px !important;
+        height: 34px !important;
+        padding: 0 4px !important;
+        font-size: 11px !important;
+        white-space: nowrap !important;
+    }
+
+    /* Tools menu stays inside the viewport and scrolls independently. */
+    .st-key-ma_chat_attach_panel {
+        left: 8px !important;
+        right: 8px !important;
+        width: auto !important;
+        max-width: none !important;
+        transform: none !important;
+        bottom: calc(62px + env(safe-area-inset-bottom, 0px)) !important;
+        max-height: min(58dvh, 470px) !important;
+        overflow-y: auto !important;
+        overscroll-behavior: contain !important;
+        padding: 8px !important;
+        border-radius: 17px !important;
+    }
+    .st-key-ma_chat_attach_panel [data-testid="stButton"] button {
+        min-height: 42px !important;
+        height: auto !important;
+        padding: 9px 10px !important;
+        font-size: 12px !important;
+        line-height: 1.35 !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+    }
+    .st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] {
+        min-height: 82px !important;
+        padding: 8px !important;
+    }
+    .st-key-ma_chat_attach_panel [data-testid="stCameraInput"] video,
+    .st-key-ma_chat_attach_panel [data-testid="stCameraInput"] img {
+        width: 100% !important;
+        max-height: 160px !important;
+        object-fit: cover !important;
+    }
+
+    /* Keep long AI answers and code blocks from causing sideways scrolling. */
+    [data-testid="stMain"] pre,
+    [data-testid="stMain"] code {
+        max-width: 100% !important;
+        overflow-x: auto !important;
+    }
+    [data-testid="stMain"] img,
+    [data-testid="stMain"] video {
+        max-width: 100% !important;
+        height: auto !important;
+    }
+}
+
+@media (max-width: 390px) {
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) {
+        grid-template-columns: 34px minmax(0, 1fr) 54px 34px !important;
+        gap: 2px !important;
+    }
+    .st-key-ma_chat_think_button button {
+        width: 50px !important;
+        min-width: 50px !important;
+        font-size: 10px !important;
+    }
+    .st-key-ma_chat_attach_button button,
+    .st-key-ma_chat_voice_button button,
+    .st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
+        width: 32px !important;
+        min-width: 32px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -436,6 +686,7 @@ defaults = {
     "ma_gemini_token_error": "",
     "ma_gemini_token_version": "",
     "ma_db_error": "",
+    "ma_generated_images": {},
 }
 
 for key, value in defaults.items():
@@ -494,6 +745,7 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_voice_screen = False
     st.session_state.ma_gemini_token = ""
     st.session_state.ma_gemini_token_error = ""
+    st.session_state.ma_generated_images = {}
 
 
 def load_cloud():
@@ -882,11 +1134,23 @@ with st.sidebar:
             else:
                 st.info("Setup required — Meta app configuration is not complete.")
             st.link_button("Official setup guide", item["docs_url"])
-        st.caption(
-            "Publishing, comment replies, deletes, and outbound messages will "
-            "always require a preview and a separate confirmation."
+        st.markdown("**Facebook messaging — two separate modes**")
+        st.info(
+            "**Personal profile:** draft-and-handoff only. Merge AI can prepare "
+            "the words and open Messenger, but you choose the conversation and "
+            "press Send yourself. It will not log into or automate a personal account."
         )
-        st.markdown("[View the Social Hub implementation plan](https://github.com/Khalid521164/Merge-Ai/blob/khalid/same-background-color/META_SOCIAL_SETUP.md)")
+        st.warning(
+            "**Facebook Page:** future support is limited to genuine Page inbox "
+            "customer-support replies under Meta permissions and messaging rules. "
+            "It cannot be used to relay personal messages to friends or family."
+        )
+        st.link_button(
+            "Messenger Send API requirements",
+            "https://developers.facebook.com/docs/messenger-platform/send-messages",
+        )
+        st.caption("No Facebook account is connected. No message has been drafted, sent, or transmitted by this preview.")
+        st.markdown("[View the Social Hub implementation plan](https://github.com/Khalid521164/Merge-Ai/blob/khalid/same-background-color/META_SOCIAL_SETUP.md) · [Facebook messaging design](https://github.com/Khalid521164/Merge-Ai/blob/khalid/same-background-color/FACEBOOK_MESSAGING_DESIGN.md)")
 
     with st.expander("ℹ️ About Merge AI"):
         st.write("**Created by:** " + CREATOR_NAME)
@@ -1113,366 +1377,7 @@ if st.session_state.ma_voice_screen:
         [data-testid="stSidebar"] {display:none!important}
         [data-testid="stHeader"] {display:none!important}
         .block-container {max-width:100%!important;padding:0!important;margin:0!important}
-        
-/* Professional attachment tray */
-.st-key-ma_chat_attach_panel {
-    background: #F7F8F7 !important;
-    border: 1px solid #DCE7E0 !important;
-    border-radius: 20px !important;
-    padding: 18px !important;
-    box-shadow: 0 16px 42px rgba(18, 48, 35, 0.18) !important;
-    width: min(460px, calc(100vw - 32px)) !important;
-    max-height: min(68vh, 560px) !important;
-}
-
-.ma-upload-heading {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 2px 1px 15px;
-}
-.ma-upload-icon {
-    width: 42px;
-    height: 42px;
-    flex: 0 0 42px;
-    display: grid;
-    place-items: center;
-    border-radius: 13px;
-    background: #E5F1EA;
-    color: #147353;
-    font-size: 25px;
-    font-weight: 600;
-}
-.ma-upload-title {
-    color: #1D3027;
-    font-size: 16px;
-    line-height: 1.3;
-    font-weight: 700;
-}
-.ma-upload-subtitle {
-    color: #718078;
-    font-size: 12px;
-    line-height: 1.45;
-    margin-top: 3px;
-}
-.st-key-ma_chat_attach_panel [data-testid="stFileUploader"] {
-    margin-top: 2px;
-}
-.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] {
-    background: #FFFFFF !important;
-    border: 1.5px dashed #AFC8B9 !important;
-    border-radius: 15px !important;
-    min-height: 112px !important;
-    transition: border-color .15s ease, background .15s ease;
-}
-.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"]:hover {
-    border-color: #147353 !important;
-    background: #F8FCF9 !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] button {
-    border: 1px solid #B9D0C2 !important;
-    border-radius: 10px !important;
-    color: #145D43 !important;
-    background: #F4FAF6 !important;
-    font-weight: 600 !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stExpander"] {
-    margin-top: 12px;
-    border: 1px solid #DCE7E0 !important;
-    border-radius: 13px !important;
-    background: #FFFFFF !important;
-    overflow: hidden;
-}
-.st-key-ma_chat_attach_panel [data-testid="stExpander"] summary {
-    color: #294638 !important;
-    font-weight: 600 !important;
-    padding: 11px 13px !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stCameraInput"] {
-    border-radius: 12px !important;
-    overflow: hidden;
-}
-@media(max-width:720px) {
-    .st-key-ma_chat_attach_panel {
-        left: 8px !important;
-        right: 8px !important;
-        bottom: 82px !important;
-        width: auto !important;
-        max-height: 62vh !important;
-        padding: 14px !important;
-    }
-}
-
-
-/* Final attachment popover polish — compact, aligned above the composer */
-.st-key-ma_chat_attach_panel {
-    position: fixed !important;
-    left: clamp(280px, 17.6vw, 360px) !important;
-    right: auto !important;
-    bottom: 104px !important;
-    width: min(420px, calc(100vw - 310px)) !important;
-    max-height: min(52vh, 430px) !important;
-    overflow-y: auto !important;
-    box-sizing: border-box !important;
-    padding: 18px !important;
-    background: #FFFFFF !important;
-    border: 1px solid #E1E9E4 !important;
-    border-radius: 18px !important;
-    box-shadow: 0 14px 38px rgba(24, 45, 34, .14) !important;
-    z-index: 100000 !important;
-}
-.st-key-ma_chat_attach_panel > div {
-    gap: 10px !important;
-}
-.st-key-ma_chat_attach_panel .ma-upload-heading {
-    padding: 0 0 12px !important;
-    border-bottom: 1px solid #EDF1EE !important;
-    margin-bottom: 4px !important;
-}
-.st-key-ma_chat_attach_panel .ma-upload-icon {
-    width: 38px !important;
-    height: 38px !important;
-    flex-basis: 38px !important;
-    border-radius: 12px !important;
-    font-size: 22px !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stFileUploader"] {
-    margin: 0 !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] {
-    min-height: 86px !important;
-    padding: 12px !important;
-    background: #F8FBF9 !important;
-    border: 1px dashed #B8CCBF !important;
-    border-radius: 13px !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] > div {
-    gap: 8px !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] small {
-    color: #718078 !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stExpander"] {
-    margin-top: 4px !important;
-    border: 1px solid #E5ECE7 !important;
-    border-radius: 12px !important;
-    background: #FFFFFF !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stExpander"] summary {
-    padding: 10px 12px !important;
-    color: #315441 !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stCameraInput"] video,
-.st-key-ma_chat_attach_panel [data-testid="stCameraInput"] img {
-    max-height: 180px !important;
-    object-fit: cover !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stCameraInput"] button {
-    min-height: 38px !important;
-}
-@media (max-width: 720px) {
-    .st-key-ma_chat_attach_panel {
-        left: 12px !important;
-        right: 12px !important;
-        bottom: 82px !important;
-        width: auto !important;
-        max-height: 48vh !important;
-        padding: 14px !important;
-    }
-}
-
-
-/* ===== Merge AI visual refresh inspired by ChatGPT ===== */
-:root {
-    --ma-bg: #FFFFFF;
-    --ma-sidebar: #F9FAFB;
-    --ma-border: #E5E7EB;
-    --ma-text: #202123;
-    --ma-muted: #858B93;
-    --ma-accent: #147353;
-}
-html, body, .stApp,
-[data-testid="stAppViewContainer"],
-[data-testid="stMain"] {
-    background: var(--ma-bg) !important;
-    color: var(--ma-text) !important;
-}
-[data-testid="stSidebar"] {
-    background: var(--ma-sidebar) !important;
-    border-right: 1px solid var(--ma-border) !important;
-}
-[data-testid="stSidebar"] > div:first-child {
-    padding: 16px 12px 18px !important;
-}
-[data-testid="stSidebar"] .m-brand {
-    margin: 4px 4px 24px !important;
-    gap: 10px !important;
-}
-[data-testid="stSidebar"] .m-logo {
-    width: 34px !important;
-    height: 34px !important;
-    border-radius: 10px !important;
-    font-size: 18px !important;
-}
-[data-testid="stSidebar"] .m-name {
-    font-size: 17px !important;
-    letter-spacing: -.35px;
-}
-[data-testid="stSidebar"] [data-testid="stButton"] button {
-    min-height: 38px !important;
-    border: 0 !important;
-    border-radius: 9px !important;
-    background: transparent !important;
-    color: #343A40 !important;
-    padding: 7px 10px !important;
-    font-size: 13px !important;
-    box-shadow: none !important;
-}
-[data-testid="stSidebar"] [data-testid="stButton"] button:hover {
-    background: #ECEEF0 !important;
-}
-[data-testid="stSidebar"] [data-testid="stTextInput"] input {
-    background: #FFFFFF !important;
-    border: 1px solid #E3E5E8 !important;
-    border-radius: 9px !important;
-    font-size: 13px !important;
-}
-[data-testid="stSidebar"] [data-testid="stExpander"] {
-    border: 1px solid #E5E7EB !important;
-    border-radius: 10px !important;
-    background: transparent !important;
-}
-[data-testid="stSidebar"] hr {
-    border-color: #E5E7EB !important;
-    margin: 16px 0 !important;
-}
-.block-container {
-    max-width: 860px !important;
-    padding-top: 1.25rem !important;
-    padding-bottom: 8.5rem !important;
-}
-.m-top {
-    max-width: 768px !important;
-    margin: 0 auto 24px !important;
-    padding: 4px 2px 14px !important;
-    border-bottom: 1px solid #F0F1F2;
-}
-.m-title {
-    font-size: 16px !important;
-    font-weight: 650 !important;
-    letter-spacing: -.2px;
-}
-.m-model {
-    font-size: 11px !important;
-    color: #92979E !important;
-}
-.m-welcome {
-    min-height: min(48vh, 390px) !important;
-    max-width: 700px !important;
-    margin: 2vh auto 0 !important;
-    gap: 14px !important;
-}
-.m-welcome .m-logo {
-    box-shadow: 0 2px 7px rgba(20,115,83,.13);
-}
-.m-welcome-title {
-    font-size: 27px !important;
-    font-weight: 650 !important;
-    letter-spacing: -.65px;
-    color: #202123 !important;
-}
-.m-user-line {
-    max-width: 768px !important;
-    margin: 20px auto 12px !important;
-}
-.m-user-text {
-    background: #F1F3F5 !important;
-    color: #24272B !important;
-    border-radius: 20px !important;
-    padding: 11px 16px !important;
-    max-width: 82% !important;
-}
-.m-assistant {
-    max-width: 768px !important;
-    margin: 26px auto 9px !important;
-    color: #147353 !important;
-}
-.st-key-ma_chat_composer {
-    left: calc(50% + 130px) !important;
-    right: auto !important;
-    transform: translateX(-50%) !important;
-    width: min(768px, calc(100vw - 310px)) !important;
-    bottom: 22px !important;
-    padding: 7px 10px !important;
-    border: 1px solid #E1E4E8 !important;
-    border-radius: 28px !important;
-    box-shadow: 0 3px 18px rgba(0,0,0,.065) !important;
-}
-.st-key-ma_chat_composer [data-testid="stHorizontalBlock"] {
-    gap: 8px !important;
-}
-.st-key-ma_chat_composer [data-testid="stTextInput"] input {
-    font-size: 14px !important;
-    color: #262A2E !important;
-}
-.st-key-ma_chat_attach_button button {
-    background: #F3F4F6 !important;
-    color: #30343B !important;
-}
-.st-key-ma_chat_think_button button {
-    background: transparent !important;
-    color: #858B93 !important;
-    font-weight: 500 !important;
-}
-.st-key-ma_chat_voice_button button {
-    background: transparent !important;
-    color: #4F5963 !important;
-}
-.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
-    background: #147353 !important;
-    box-shadow: none !important;
-}
-.st-key-ma_chat_attach_panel {
-    left: calc(50% + 130px) !important;
-    right: auto !important;
-    transform: translateX(-50%) !important;
-    width: min(690px, calc(100vw - 310px)) !important;
-    bottom: 86px !important;
-    border-radius: 18px !important;
-    box-shadow: 0 10px 34px rgba(0,0,0,.11) !important;
-}
-.st-key-ma_chat_attach_panel [data-testid="stButton"] button {
-    min-height: 40px !important;
-    font-size: 13px !important;
-}
-div[data-testid="stToolbar"],
-div[data-testid="stStatusWidget"],
-.stAppDeployButton {
-    visibility: hidden !important;
-    display: none !important;
-}
-@media (max-width: 720px) {
-    .block-container {
-        padding: 1rem 12px 7.5rem !important;
-    }
-    .st-key-ma_chat_composer {
-        left: 50% !important;
-        width: calc(100vw - 20px) !important;
-        bottom: 10px !important;
-    }
-    .st-key-ma_chat_attach_panel {
-        left: 50% !important;
-        width: calc(100vw - 20px) !important;
-        bottom: 76px !important;
-    }
-    .m-welcome {
-        min-height: 42vh !important;
-    }
-}
-
-</style>
+        </style>
         """,
         unsafe_allow_html=True,
     )
@@ -1629,6 +1534,31 @@ for i, msg in enumerate(chat["messages"]):
 
         st.markdown(content)
 
+        # Generated images stay in this browser session; only their small
+        # reference is saved in chat history, not the image bytes.
+        image_key = msg.get("image_key")
+        if image_key:
+            generated = st.session_state.ma_generated_images.get(image_key)
+            if generated:
+                st.image(
+                    generated["data"],
+                    caption="Created with Merge AI",
+                    use_container_width=True,
+                )
+                extension = "jpg" if generated["mime_type"] == "image/jpeg" else "png"
+                st.download_button(
+                    "Download image",
+                    data=generated["data"],
+                    file_name=f"merge-ai-image-{image_key[:8]}.{extension}",
+                    mime=generated["mime_type"],
+                    key="ma_download_image_" + image_key,
+                )
+            else:
+                st.caption(
+                    "This image preview is no longer available in this session. "
+                    "The prompt remains in your chat history."
+                )
+
         sources = (
             msg.get("sources") or []
         )
@@ -1687,11 +1617,17 @@ with st.container(key="ma_chat_composer"):
             st.rerun()
     with message_col:
         with st.form("ma_chat_composer_form", clear_on_submit=True, border=False):
-            typed_question = st.text_input(
-                "Message", placeholder="Ask Merge AI",
-                label_visibility="collapsed", key="ma_composer_text",
-            )
-            send_clicked = st.form_submit_button("↑", type="primary")
+            input_col, send_col = st.columns([11, 0.85], vertical_alignment="center")
+            with input_col:
+                typed_question = st.text_input(
+                    "Message", placeholder="Ask Merge AI anything…",
+                    label_visibility="collapsed", key="ma_composer_text",
+                )
+            with send_col:
+                send_clicked = st.form_submit_button(
+                    "↑", type="primary", use_container_width=True,
+                    key="ma_chat_send_button",
+                )
     with think_col:
         think_label = "Think" if st.session_state.ma_mode == "Fast" else "Deep"
         if st.button(think_label, key="ma_chat_think_button", help="Switch answer mode"):
@@ -1761,10 +1697,91 @@ if st.session_state.ma_show_attach_panel:
             st.caption("Deep mode and web search are enabled for your next question.")
         elif action == "thinking":
             st.caption("Deep answer mode is enabled.")
-        elif action in ("library", "image", "tabs", "sketch", "runway", "chrome"):
+        elif action == "image":
+            st.divider()
+            st.markdown("#### Create an image")
+            cloudflare_account_id = secret("CLOUDFLARE_ACCOUNT_ID")
+            cloudflare_api_token = secret("CLOUDFLARE_API_TOKEN")
+            if not cloudflare_account_id or not cloudflare_api_token:
+                st.info(
+                    "Free image generation uses Cloudflare Workers AI. "
+                    "The account owner needs to connect a Cloudflare Free account first."
+                )
+                st.markdown(
+                    "[Open Cloudflare Workers AI setup](https://dash.cloudflare.com/?to=/:account/workers/ai)"
+                )
+                st.caption(
+                    "In Workers AI, choose **Use REST API → Create a Workers AI API Token**. "
+                    "Then add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to this app's "
+                    "Streamlit Secrets. Never paste the token into chat or GitHub."
+                )
+                st.caption(
+                    "Cloudflare includes 10,000 free neurons each day. On the Free plan, "
+                    "image requests stop when the daily allowance is exhausted; they do not "
+                    "automatically switch to paid usage."
+                )
+            else:
+                image_prompt = st.text_area(
+                    "Describe the picture you want",
+                    placeholder="A futuristic city at sunset, cinematic lighting, highly detailed...",
+                    max_chars=1800,
+                    height=105,
+                    key="ma_image_prompt",
+                )
+                image_model = secret(
+                    "CLOUDFLARE_IMAGE_MODEL",
+                    "@cf/black-forest-labs/flux-1-schnell",
+                )
+                st.caption(
+                    f"Free daily tier · Cloudflare Workers AI · {image_model}. "
+                    "The free allowance is shared with other Workers AI usage in this account."
+                )
+                if st.button("Generate image", type="primary", key="ma_generate_image"):
+                    if not image_prompt.strip():
+                        st.warning("Describe the image first.")
+                    else:
+                        try:
+                            with st.spinner("Merge AI is creating your image..."):
+                                image_bytes, mime_type, image_note = generate_image(
+                                    image_prompt,
+                                    cloudflare_account_id,
+                                    cloudflare_api_token,
+                                    image_model,
+                                )
+                            image_key = uuid.uuid4().hex
+                            st.session_state.ma_generated_images[image_key] = {
+                                "data": image_bytes,
+                                "mime_type": mime_type,
+                            }
+                            # Keep only the most recent five image previews in memory.
+                            while len(st.session_state.ma_generated_images) > 5:
+                                oldest_key = next(iter(st.session_state.ma_generated_images))
+                                del st.session_state.ma_generated_images[oldest_key]
+
+                            image_chat = active_chat()
+                            image_chat["messages"].append({
+                                "role": "user",
+                                "content": "Create an image: " + image_prompt.strip(),
+                            })
+                            image_chat["messages"].append({
+                                "role": "assistant",
+                                "content": image_note or "Here is your generated image.",
+                                "image_key": image_key,
+                                "sources": [],
+                            })
+                            if image_chat["title"] == "New chat":
+                                image_chat["title"] = "Image: " + image_prompt.strip()[:50]
+                            persist(image_chat)
+                            st.session_state.ma_show_attach_panel = False
+                            st.session_state.ma_attach_action = ""
+                            st.rerun()
+                        except ImageGenerationError as exc:
+                            st.error(str(exc))
+                        except Exception:
+                            st.error("Something went wrong while creating the image. Please try again.")
+        elif action in ("library", "tabs", "sketch", "runway", "chrome"):
             messages = {
                 "library": "Library browsing is not connected in this version yet.",
-                "image": "Image generation is not connected in this version yet.",
                 "tabs": "Browser-tab access needs a connected browser integration.",
                 "sketch": "The sketch canvas is not available yet.",
                 "runway": "Runway needs an authorized integration before it can be used.",

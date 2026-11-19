@@ -84,3 +84,34 @@ def action_requires_confirmation(action: str) -> bool:
         "delete_content",
         "moderate_comment",
     }
+
+# Messaging modes are deliberately separated.
+FACEBOOK_MESSAGING_MODES = {
+    "personal_profile": {
+        "label": "Personal Facebook / Messenger",
+        "mode": "manual_handoff",
+        "automatic_send": False,
+        "description": (
+            "Merge AI can prepare a message draft and open Messenger. "
+            "The person must choose the conversation and press Send in Messenger."
+        ),
+    },
+    "facebook_page": {
+        "label": "Facebook Page inbox",
+        "mode": "page_customer_support_reply",
+        "automatic_send": False,
+        "description": (
+            "A future official API integration may reply as a managed Page "
+            "to eligible inbound Page conversations. It must never relay "
+            "personal messages between two people."
+        ),
+    },
+}
+
+
+def get_facebook_messaging_modes():
+    """Return supported messaging routes without exposing credentials."""
+    return {
+        key: dict(value)
+        for key, value in FACEBOOK_MESSAGING_MODES.items()
+    }
