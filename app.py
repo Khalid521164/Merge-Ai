@@ -44,6 +44,7 @@ from personal_memory import suggest_memories, relevant_memories, is_memory_quest
 from about_merge_ai import PROJECT_CONTEXT, CREATOR_NAME, CREATED_FOR, PURPOSE, answer_project_question
 from file_studio import read_uploads, analyze_images
 from social_integrations import get_social_integrations
+from image_generation import generate_image, ImageGenerationError
 
 try:
     from merge_ai import MergeAI, default_providers
@@ -685,6 +686,7 @@ defaults = {
     "ma_gemini_token_error": "",
     "ma_gemini_token_version": "",
     "ma_db_error": "",
+    "ma_generated_images": {},
 }
 
 for key, value in defaults.items():
@@ -743,6 +745,7 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_voice_screen = False
     st.session_state.ma_gemini_token = ""
     st.session_state.ma_gemini_token_error = ""
+    st.session_state.ma_generated_images = {}
 
 
 def load_cloud():
@@ -1531,6 +1534,31 @@ for i, msg in enumerate(chat["messages"]):
 
         st.markdown(content)
 
+        # Generated images stay in this browser session; only their small
+        # reference is saved in chat history, not the image bytes.
+        image_key = msg.get("image_key")
+        if image_key:
+            generated = st.session_state.ma_generated_images.get(image_key)
+            if generated:
+                st.image(
+                    generated["data"],
+                    caption="Created with Merge AI",
+                    use_container_width=True,
+                )
+                extension = "jpg" if generated["mime_type"] == "image/jpeg" else "png"
+                st.download_button(
+                    "Download image",
+                    data=generated["data"],
+                    file_name=f"merge-ai-image-{image_key[:8]}.{extension}",
+                    mime=generated["mime_type"],
+                    key="ma_download_image_" + image_key,
+                )
+            else:
+                st.caption(
+                    "This image preview is no longer available in this session. "
+                    "The prompt remains in your chat history."
+                )
+
         sources = (
             msg.get("sources") or []
         )
@@ -1669,10 +1697,83 @@ if st.session_state.ma_show_attach_panel:
             st.caption("Deep mode and web search are enabled for your next question.")
         elif action == "thinking":
             st.caption("Deep answer mode is enabled.")
-        elif action in ("library", "image", "tabs", "sketch", "runway", "chrome"):
+        elif action == "image":
+            st.divider()
+            st.markdown("#### Create an image")
+            image_enabled = str(secret("ENABLE_IMAGE_GENERATION", "false")).strip().lower() in {
+                "1", "true", "yes", "on"
+            }
+            if not image_enabled:
+                st.info(
+                    "Image generation is locked until the account owner enables it. "
+                    "Gemini image generation is billed separately and can incur charges."
+                )
+                st.markdown(
+                    "[Review Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing)"
+                )
+                st.caption(
+                    "The account owner can enable it by setting "
+                    "`ENABLE_IMAGE_GENERATION = \"true\"` in Streamlit Secrets "
+                    "after checking the billing settings."
+                )
+            else:
+                image_prompt = st.text_area(
+                    "Describe the picture you want",
+                    placeholder="A futuristic city at sunset, cinematic lighting, highly detailed...",
+                    max_chars=1500,
+                    height=105,
+                    key="ma_image_prompt",
+                )
+                image_model = secret("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-lite-image")
+                st.caption(
+                    f"Powered by Gemini · Model: {image_model}. "
+                    "Each generation sends your prompt to Google and may incur API charges."
+                )
+                if st.button("Generate image", type="primary", key="ma_generate_image"):
+                    if not image_prompt.strip():
+                        st.warning("Describe the image first.")
+                    else:
+                        try:
+                            with st.spinner("Merge AI is creating your image..."):
+                                image_bytes, mime_type, image_note = generate_image(
+                                    image_prompt,
+                                    secret("GEMINI_API_KEY"),
+                                    image_model,
+                                )
+                            image_key = uuid.uuid4().hex
+                            st.session_state.ma_generated_images[image_key] = {
+                                "data": image_bytes,
+                                "mime_type": mime_type,
+                            }
+                            # Keep only the most recent five image previews in memory.
+                            while len(st.session_state.ma_generated_images) > 5:
+                                oldest_key = next(iter(st.session_state.ma_generated_images))
+                                del st.session_state.ma_generated_images[oldest_key]
+
+                            image_chat = active_chat()
+                            image_chat["messages"].append({
+                                "role": "user",
+                                "content": "Create an image: " + image_prompt.strip(),
+                            })
+                            image_chat["messages"].append({
+                                "role": "assistant",
+                                "content": image_note or "Here is your generated image.",
+                                "image_key": image_key,
+                                "sources": [],
+                            })
+                            if image_chat["title"] == "New chat":
+                                image_chat["title"] = "Image: " + image_prompt.strip()[:50]
+                            persist(image_chat)
+                            st.session_state.ma_show_attach_panel = False
+                            st.session_state.ma_attach_action = ""
+                            st.rerun()
+                        except ImageGenerationError as exc:
+                            st.error(str(exc))
+                        except Exception:
+                            st.error("Something went wrong while creating the image. Please try again.")
+        elif action in ("library", "tabs", "sketch", "runway", "chrome"):
             messages = {
                 "library": "Library browsing is not connected in this version yet.",
-                "image": "Image generation is not connected in this version yet.",
                 "tabs": "Browser-tab access needs a connected browser integration.",
                 "sketch": "The sketch canvas is not available yet.",
                 "runway": "Runway needs an authorized integration before it can be used.",
