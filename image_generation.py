@@ -1,132 +1,107 @@
-"""Gemini image generation for Merge AI.
+"""Free-tier image generation for Merge AI using Cloudflare Workers AI.
 
-Image generation is deliberately opt-in because Gemini image output can incur
-API charges. The app must also have ENABLE_IMAGE_GENERATION=true configured
-by the account owner before this module can be called from the UI.
+Cloudflare Workers AI currently includes 10,000 neurons/day on its Free plan.
+On the Free plan, requests stop after the daily allowance is exhausted.
 """
 
 from __future__ import annotations
 
 import base64
 import binascii
-import os
 import re
 
 import requests
 
 
-DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-lite-image"
-MAX_PROMPT_CHARS = 1500
-REQUEST_TIMEOUT = (15, 120)
-INTERACTIONS_URL = "https://generativelanguage.googleapis.com/v1beta/interactions"
-API_REVISION = "2026-05-20"
+DEFAULT_IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell"
+MAX_PROMPT_CHARS = 1800
+REQUEST_TIMEOUT = (15, 180)
+CLOUDFLARE_API = "https://api.cloudflare.com/client/v4/accounts"
 
 
 class ImageGenerationError(Exception):
     """A safe, user-facing image-generation error."""
 
 
-def _output_blocks(data: dict) -> list[dict]:
-    """Read the current Interactions API steps, with compatibility fallbacks."""
-    blocks = []
-    for step in data.get("steps") or data.get("outputs") or []:
-        if not isinstance(step, dict):
-            continue
-        content = step.get("content")
-        if isinstance(content, list):
-            blocks.extend(item for item in content if isinstance(item, dict))
-        elif isinstance(content, dict):
-            blocks.append(content)
-
-    # Some SDK-shaped responses expose this convenience field directly.
-    image = data.get("output_image") or data.get("outputImage")
-    if isinstance(image, dict):
-        blocks.append({
-            "type": "image",
-            "data": image.get("data"),
-            "mime_type": image.get("mime_type") or image.get("mimeType"),
-        })
-    return blocks
-
-
-def generate_image(prompt: str, api_key: str, model: str | None = None) -> tuple[bytes, str, str]:
-    """Generate one image with Gemini and return (image_bytes, mime_type, note)."""
+def generate_image(
+    prompt: str,
+    account_id: str,
+    api_token: str,
+    model: str | None = None,
+) -> tuple[bytes, str, str]:
+    """Generate one image and return (image_bytes, mime_type, note)."""
     prompt = str(prompt or "").strip()
-    api_key = str(api_key or "").strip()
-    model = str(model or os.getenv("GEMINI_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL).strip()
+    account_id = str(account_id or "").strip()
+    api_token = str(api_token or "").strip()
+    model = str(model or DEFAULT_IMAGE_MODEL).strip()
 
     if not prompt:
         raise ImageGenerationError("Write a description of the image first.")
     if len(prompt) > MAX_PROMPT_CHARS:
         raise ImageGenerationError(f"Keep the image description under {MAX_PROMPT_CHARS} characters.")
-    if not api_key:
-        raise ImageGenerationError("The Gemini API key is not configured. Ask the account owner to check Streamlit Secrets.")
-    if not re.fullmatch(r"[A-Za-z0-9._-]{1,100}", model):
-        raise ImageGenerationError("The configured Gemini image model name is invalid.")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{8,128}", account_id):
+        raise ImageGenerationError("The Cloudflare account ID is missing or invalid.")
+    if not api_token:
+        raise ImageGenerationError("The Cloudflare API token is not configured. Ask the account owner to add it in Streamlit Secrets.")
+    if not re.fullmatch(r"@cf/[A-Za-z0-9._/-]{3,150}", model):
+        raise ImageGenerationError("The configured Cloudflare image model name is invalid.")
 
-    # The current Gemini image-generation guide uses the Interactions API.
-    # store=false avoids retaining this one-off generation as a stored interaction.
+    url = f"{CLOUDFLARE_API}/{account_id}/ai/run/{model}"
     payload = {
-        "model": model,
-        "input": prompt,
-        "store": False,
+        "prompt": prompt,
+        "steps": 4,
     }
 
     try:
         response = requests.post(
-            INTERACTIONS_URL,
+            url,
             headers={
-                "x-goog-api-key": api_key,
+                "Authorization": f"Bearer {api_token}",
                 "Content-Type": "application/json",
-                "Api-Revision": API_REVISION,
             },
             json=payload,
             timeout=REQUEST_TIMEOUT,
         )
     except requests.Timeout as exc:
-        raise ImageGenerationError("Gemini took too long to create the image. Please try again.") from exc
+        raise ImageGenerationError("The image service took too long. Please try again.") from exc
     except requests.RequestException as exc:
-        raise ImageGenerationError("Merge AI could not reach Gemini. Check the connection and try again.") from exc
+        raise ImageGenerationError("Merge AI could not reach Cloudflare. Check the connection and try again.") from exc
 
+    if response.status_code == 401:
+        raise ImageGenerationError("Cloudflare rejected the API token. Ask the account owner to check the token permissions.")
+    if response.status_code == 403:
+        raise ImageGenerationError("This Cloudflare token does not have permission to run Workers AI.")
     if response.status_code == 429:
-        raise ImageGenerationError("Gemini's image-generation rate limit was reached. Please try again later.")
-    if response.status_code in (401, 403):
-        raise ImageGenerationError("Gemini rejected the API key or this model is not enabled for the account. Ask the account owner to check Google AI Studio.")
+        raise ImageGenerationError("Cloudflare is rate-limiting image requests. Please wait and try again.")
     if response.status_code >= 400:
-        raise ImageGenerationError(f"Gemini image generation failed (HTTP {response.status_code}). Please check the model setting and try again.")
+        # Do not display raw provider responses, which can contain account details.
+        raise ImageGenerationError(
+            f"Cloudflare image generation returned HTTP {response.status_code}. "
+            "The daily free allowance may be used up, or the model may be unavailable."
+        )
 
     try:
         data = response.json()
     except ValueError as exc:
-        raise ImageGenerationError("Gemini returned an unreadable response. Please try again.") from exc
+        raise ImageGenerationError("Cloudflare returned an unreadable image response.") from exc
 
-    if data.get("status") == "failed":
-        raise ImageGenerationError("Gemini could not complete this image request. Please try again with a different description.")
+    result = data.get("result")
+    if not data.get("success", True):
+        raise ImageGenerationError(
+            "Cloudflare could not complete the image request. The daily free allowance "
+            "may be used up, or the prompt may need changing."
+        )
 
-    blocks = _output_blocks(data)
-    for part in blocks:
-        part_type = str(part.get("type") or "").lower()
-        encoded = part.get("data")
-        mime_type = part.get("mime_type") or part.get("mimeType") or "image/png"
-        if part_type == "image" and isinstance(encoded, str) and mime_type.startswith("image/"):
-            try:
-                image_bytes = base64.b64decode(encoded, validate=True)
-            except (ValueError, binascii.Error) as exc:
-                raise ImageGenerationError("Gemini returned an invalid image. Please try again.") from exc
-            if image_bytes:
-                note = next(
-                    (str(item.get("text", "")).strip() for item in blocks
-                     if item.get("type") == "text" and item.get("text")),
-                    "Here is the image you asked Merge AI to create.",
-                )
-                return image_bytes, mime_type, note[:1000]
+    encoded = result.get("image") if isinstance(result, dict) else result
+    if not isinstance(encoded, str) or not encoded:
+        raise ImageGenerationError("Cloudflare did not return an image. Please try a different description.")
 
-    # A safety block or unsupported prompt can yield text without image bytes.
-    explanation = " ".join(
-        str(item.get("text", "")).strip()
-        for item in blocks
-        if item.get("type") == "text" and item.get("text")
-    ).strip()
-    if explanation:
-        raise ImageGenerationError(explanation[:500])
-    raise ImageGenerationError("Gemini did not return an image. Try changing your description.")
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise ImageGenerationError("Cloudflare returned an invalid image. Please try again.") from exc
+
+    if not image_bytes:
+        raise ImageGenerationError("The generated image was empty. Please try again.")
+
+    return image_bytes, "image/jpeg", "Here is the image you asked Merge AI to create."
