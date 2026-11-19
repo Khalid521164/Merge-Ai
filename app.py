@@ -1517,6 +1517,125 @@ html, body, .stApp,
   }
 }
 
+
+/* ===== Restore last week's original light background/colors only ===== */
+html, body, .stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+[data-testid="stHeader"],
+[data-testid="stSidebar"],
+[data-testid="stSidebarContent"],
+[data-testid="stBottomBlockContainer"] {
+    color-scheme: light !important;
+    background-color: #F7F8F7 !important;
+    color: #1B201E !important;
+}
+[data-testid="stHeader"] { background: #F7F8F7 !important; }
+[data-testid="stSidebar"],
+[data-testid="stSidebarContent"] {
+    background: #F7F8F7 !important;
+    border-right: 1px solid #E6EBE8 !important;
+}
+[data-testid="stMain"] .stMarkdownContainer,
+[data-testid="stMain"] .stMarkdownContainer p,
+[data-testid="stMain"] .stMarkdownContainer li,
+[data-testid="stMain"] label,
+[data-testid="stMain"] h1,
+[data-testid="stMain"] h2,
+[data-testid="stMain"] h3,
+[data-testid="stMain"] h4,
+[data-testid="stSidebar"] .stMarkdownContainer,
+[data-testid="stSidebar"] .stMarkdownContainer p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] span {
+    color: #1B201E !important;
+}
+.m-top, .m-title, .m-name, .m-welcome-title {
+    color: #1B201E !important;
+    opacity: 1 !important;
+}
+.m-model { color: #829188 !important; opacity: 1 !important; }
+.m-footer { color: #929C96 !important; }
+.m-user-text {
+    color: #1B201E !important;
+    background: #F0F3F1 !important;
+    border: 0 !important;
+}
+.m-assistant { color: #147353 !important; }
+.m-welcome > div:last-child { color: #6F7B74 !important; }
+.st-key-ma_chat_composer {
+    background: #F7F8F7 !important;
+    border: 1px solid #E5E7EB !important;
+    box-shadow: 0 3px 16px rgba(0,0,0,.07) !important;
+}
+.st-key-ma_chat_composer [data-testid="stTextInput"] input,
+.stTextInput input, .stTextArea textarea,
+[data-baseweb="input"] input, [data-baseweb="textarea"] textarea {
+    color: #1B201E !important;
+    -webkit-text-fill-color: #1B201E !important;
+    background: #FFFFFF !important;
+    border-color: #D9E0DC !important;
+}
+.st-key-ma_chat_composer [data-testid="stTextInput"] input {
+    background: transparent !important;
+    border: 0 !important;
+}
+.st-key-ma_chat_composer [data-testid="stTextInput"] input::placeholder,
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder {
+    color: #829188 !important;
+    -webkit-text-fill-color: #829188 !important;
+    opacity: 1 !important;
+}
+.stButton > button, .stDownloadButton > button,
+[data-testid="stFormSubmitButton"] button {
+    color: #1B201E !important;
+    background: #F3F4F6 !important;
+    border: 1px solid #E5E7EB !important;
+}
+.stButton > button:hover, .stDownloadButton > button:hover {
+    color: #1B201E !important;
+    background: #E9ECEA !important;
+}
+.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
+    color: #FFFFFF !important;
+    background: #147353 !important;
+    border-color: #147353 !important;
+}
+.st-key-ma_chat_voice_button button {
+    color: #FFFFFF !important;
+    background: #147353 !important;
+    border: 1px solid #147353 !important;
+}
+.st-key-ma_chat_attach_button button,
+.st-key-ma_chat_think_button button {
+    color: #30343B !important;
+    background: #F3F4F6 !important;
+    border-color: #E5E7EB !important;
+}
+.st-key-ma_chat_think_button button { color: #737780 !important; }
+.st-key-ma_chat_attach_panel {
+    background: #FFFFFF !important;
+    border-color: #E5E7EB !important;
+    box-shadow: 0 10px 32px rgba(0,0,0,.10) !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stButton"] button {
+    color: #202124 !important;
+    background: #FFFFFF !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stButton"] button:hover {
+    background: #F1F2F3 !important;
+}
+[data-testid="stExpander"] {
+    background: #FFFFFF !important;
+    border-color: #E5E7EB !important;
+}
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary span {
+    color: #1B201E !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
