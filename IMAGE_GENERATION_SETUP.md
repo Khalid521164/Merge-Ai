@@ -4,7 +4,7 @@
 
 The **Create image** tool sends the description to the Gemini image-generation API, displays the returned picture in the chat, and provides a Download image button.
 
-The default model is `gemini-3.1-flash-lite-image`. The account owner can override it with `GEMINI_IMAGE_MODEL`.
+The default model is `gemini-3.1-flash-lite-image`. The account owner can override it with `GEMINI_IMAGE_MODEL`. The integration uses Google's current Gemini Interactions API.
 
 ## Important: billing and permission
 
