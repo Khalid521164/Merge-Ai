@@ -1384,6 +1384,139 @@ html, body, .stApp,
     .st-key-ma_chat_attach_button button { width: 36px !important; min-width: 36px !important; height: 36px !important; min-height: 36px !important; }
 }
 
+
+/* ===== FINAL DESKTOP COMPOSER GRID FIX — desktop only ===== */
+@media (min-width: 769px) {
+  .st-key-ma_chat_composer {
+    position: fixed !important;
+    left: clamp(300px, 17.6vw, 360px) !important;
+    right: 4.5vw !important;
+    transform: none !important;
+    width: auto !important;
+    max-width: none !important;
+    bottom: 28px !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    padding: 8px 12px !important;
+    background: #0F161F !important;
+    border: 1px solid #2C3A4B !important;
+    border-radius: 28px !important;
+    box-shadow: 0 8px 30px rgba(0,0,0,.38) !important;
+    z-index: 99999 !important;
+  }
+  .st-key-ma_chat_composer > div,
+  .st-key-ma_chat_composer [data-testid="stVerticalBlock"] {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) {
+    display: grid !important;
+    grid-template-columns: 44px 44px minmax(0, 1fr) 74px !important;
+    align-items: center !important;
+    column-gap: 8px !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"] {
+    display: block !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(1),
+  .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(2) {
+    width: 44px !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(3) {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(4) {
+    width: 74px !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stForm"] {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stForm"] [data-testid="stHorizontalBlock"] {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) 40px !important;
+    gap: 8px !important;
+    align-items: center !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stForm"] [data-testid="column"] {
+    display: block !important;
+    width: auto !important;
+    min-width: 0 !important;
+    flex: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stTextInput"] {
+    width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stTextInput"] input {
+    display: block !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: 44px !important;
+    padding: 0 6px !important;
+    color: #F3F7FB !important;
+    background: transparent !important;
+    border: 0 !important;
+    box-shadow: none !important;
+    font-size: 15px !important;
+  }
+  .st-key-ma_chat_voice_button button,
+  .st-key-ma_chat_attach_button button {
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    border-radius: 50% !important;
+  }
+  .st-key-ma_chat_voice_button button {
+    color: #FFFFFF !important;
+    background: #147353 !important;
+    border: 1px solid #24A879 !important;
+  }
+  .st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
+    width: 40px !important;
+    min-width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    border-radius: 50% !important;
+  }
+  .st-key-ma_chat_think_button button {
+    width: 74px !important;
+    min-width: 74px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    border-radius: 20px !important;
+  }
+  .st-key-ma_chat_attach_panel {
+    position: fixed !important;
+    left: clamp(300px, 17.6vw, 360px) !important;
+    right: 4.5vw !important;
+    transform: none !important;
+    width: auto !important;
+    max-width: none !important;
+    bottom: 88px !important;
+  }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
