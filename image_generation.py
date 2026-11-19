@@ -132,9 +132,22 @@ def generate_image(
 
     result = data.get("result")
     if not data.get("success", True):
+        errors = data.get("errors") or []
+        details = []
+        for item in errors[:2]:
+            if isinstance(item, dict):
+                code = item.get("code")
+                message = str(item.get("message") or "").strip()
+                if api_token:
+                    message = message.replace(api_token, "[hidden]")
+                if account_id:
+                    message = message.replace(account_id, "[hidden]")
+                if message:
+                    details.append((f"Error {code}: " if code is not None else "") + message[:180])
+        detail = " ".join(details)
         raise ImageGenerationError(
-            "Cloudflare could not complete the image request. The daily free allowance "
-            "may be used up, or the prompt may need changing."
+            "Cloudflare could not complete the image request. "
+            + (detail or "Check the model, token permissions, and daily free allowance.")
         )
 
     encoded = result.get("image") if isinstance(result, dict) else result
