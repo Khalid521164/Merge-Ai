@@ -1078,25 +1078,28 @@ html, body, .stApp,
         position: fixed !important;
         top: max(8px, env(safe-area-inset-top, 0px)) !important;
         left: 9px !important;
-        width: 44px !important;
+        width: 52px !important;
         height: 44px !important;
         z-index: 100100 !important;
     }
     .st-key-ma_mobile_menu_button_wrap [data-testid="stButton"] {
-        width: 44px !important;
+        width: 52px !important;
         height: 44px !important;
     }
     .st-key-ma_mobile_menu_button_wrap button {
-        width: 44px !important;
-        min-width: 44px !important;
+        width: 52px !important;
+        min-width: 52px !important;
         height: 44px !important;
         min-height: 44px !important;
-        padding: 0 !important;
+        padding: 0 8px !important;
         border-radius: 13px !important;
-        color: #EAF0F6 !important;
-        background: #152130 !important;
-        border: 1px solid #304155 !important;
-        font-size: 21px !important;
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+        background: #147353 !important;
+        border: 1px solid #24A879 !important;
+        font-size: 14px !important;
+        font-weight: 750 !important;
+        line-height: 1 !important;
         touch-action: manipulation !important;
     }
     .st-key-ma_mobile_sidebar {
@@ -1141,7 +1144,7 @@ html, body, .stApp,
         border: 1px solid #344457 !important;
     }
 
-    /* Stable one-row composer: attachment | message | mode | live voice. */
+    /* Stable one-row composer: live voice | attachment | message. Think stays in the desktop UI. */
     .st-key-ma_chat_composer {
         left: 8px !important;
         right: 8px !important;
@@ -1158,18 +1161,29 @@ html, body, .stApp,
         gap: 0 !important;
     }
     .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) {
-        display: grid !important;
-        grid-template-columns: 42px minmax(0,1fr) 54px 42px !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
         align-items: center !important;
-        gap: 5px !important;
+        gap: 6px !important;
         width: 100% !important;
     }
     .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"] {
-        width: auto !important;
         min-width: 0 !important;
         max-width: none !important;
-        flex: none !important;
+        flex: 0 0 auto !important;
         padding: 0 !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(1) {
+        width: 44px !important; flex: 0 0 44px !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(2) {
+        width: 40px !important; flex: 0 0 40px !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(3) {
+        min-width: 0 !important; width: auto !important; flex: 1 1 auto !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(4) {
+        display: none !important;
     }
     .st-key-ma_chat_composer [data-testid="stForm"] {
         width: 100% !important;
@@ -1206,8 +1220,8 @@ html, body, .stApp,
         color: #F3F7FB !important;
         background: transparent !important;
     }
-    .st-key-ma_chat_attach_button button,
     .st-key-ma_chat_voice_button button,
+    .st-key-ma_chat_attach_button button,
     .st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
         width: 40px !important;
         min-width: 40px !important;
@@ -1219,6 +1233,13 @@ html, body, .stApp,
         align-items: center !important;
         justify-content: center !important;
         font-size: 18px !important;
+    }
+    .st-key-ma_chat_voice_button button {
+        color: #FFFFFF !important;
+        -webkit-text-fill-color: #FFFFFF !important;
+        background: #147353 !important;
+        border: 1px solid #24A879 !important;
+        box-shadow: 0 0 0 3px rgba(20,115,83,.18) !important;
     }
     .st-key-ma_chat_think_button button {
         width: 54px !important;
@@ -1241,13 +1262,11 @@ html, body, .stApp,
     }
 }
 @media (max-width: 390px) {
-    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) {
-        grid-template-columns: 38px minmax(0,1fr) 48px 38px !important;
-        gap: 3px !important;
-    }
-    .st-key-ma_chat_attach_button button,
-    .st-key-ma_chat_voice_button button { width: 36px !important; min-width: 36px !important; height: 36px !important; min-height: 36px !important; }
-    .st-key-ma_chat_think_button button { width: 48px !important; min-width: 48px !important; font-size: 10px !important; }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) { gap: 4px !important; }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(1) { width: 40px !important; flex-basis: 40px !important; }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(2) { width: 36px !important; flex-basis: 36px !important; }
+    .st-key-ma_chat_voice_button button,
+    .st-key-ma_chat_attach_button button { width: 36px !important; min-width: 36px !important; height: 36px !important; min-height: 36px !important; }
 }
 
 </style>
@@ -2130,7 +2149,7 @@ if st.session_state.ma_voice_screen:
 
 
 with st.container(key="ma_mobile_menu_button_wrap"):
-    if st.button("☰", key="ma_mobile_menu_button", help="Open chat history and navigation"):
+    if st.button("☰  Menu", key="ma_mobile_menu_button", help="Open chat history and navigation"):
         st.session_state.ma_mobile_sidebar_open = not st.session_state.ma_mobile_sidebar_open
         st.rerun()
 
@@ -2262,9 +2281,21 @@ typed_question = ""
 send_clicked = False
 
 with st.container(key="ma_chat_composer"):
-    plus_col, message_col, think_col, voice_col = st.columns(
-        [0.75, 8.8, 1.15, 0.75], vertical_alignment="center"
+    voice_col, plus_col, message_col, think_col = st.columns(
+        [0.85, 0.85, 8.8, 1.15], vertical_alignment="center"
     )
+    with voice_col:
+        if st.button(
+            "🎙",
+            key="ma_chat_voice_button",
+            help="Start a live voice conversation",
+            type="secondary",
+            use_container_width=True,
+        ):
+            st.session_state.ma_voice_screen = True
+            st.session_state.ma_gemini_token = ""
+            st.session_state.ma_gemini_token_error = ""
+            st.rerun()
     with plus_col:
         if st.button(
             "＋", key="ma_chat_attach_button",
@@ -2292,16 +2323,7 @@ with st.container(key="ma_chat_composer"):
         if st.button(think_label, key="ma_chat_think_button", help="Switch answer mode"):
             st.session_state.ma_mode = "Deep" if st.session_state.ma_mode == "Fast" else "Fast"
             st.rerun()
-    with voice_col:
-        if st.button(
-            "🎙",
-            key="ma_chat_voice_button",
-            help="Start a live voice conversation. On Android, open Merge AI in Chrome and allow microphone access.",
-            type="secondary",
-            use_container_width=True,
-        ):
-            st.session_state.ma_voice_screen = True
-            st.rerun()
+# Live voice now sits at the left edge of the composer for phone access.
 
 # Tools menu sits directly above the composer, like ChatGPT's plus menu.
 if st.session_state.ma_show_attach_panel:
