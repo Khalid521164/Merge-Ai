@@ -19,37 +19,131 @@ st.set_page_config(
 
 # ===================== SECRETS =====================
 
+def _clean_secret_value(value):
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def secret(name, default=""):
-    """Read Streamlit Secrets first, then fall back to environment variables."""
+    """Read Streamlit Secrets by mapping access, then environment variables."""
     try:
-        value = st.secrets.get(name)
-        if value is not None and str(value).strip():
-            return str(value).strip()
+        if name in st.secrets:
+            value = _clean_secret_value(st.secrets[name])
+            if value:
+                return value
     except Exception:
         pass
 
-    value = os.environ.get(name)
-    if value is not None and str(value).strip():
-        return str(value).strip()
-    return default
+    value = _clean_secret_value(os.environ.get(name))
+    return value if value else default
+
+
+def _secret_mapping_value(mapping, candidates):
+    """Read a matching key from a dict-like secret section, case-insensitively."""
+    try:
+        keys = list(mapping.keys())
+    except Exception:
+        return ""
+
+    by_lower = {str(key).casefold(): key for key in keys}
+    for candidate in candidates:
+        actual_key = by_lower.get(str(candidate).casefold())
+        if actual_key is None:
+            continue
+        try:
+            value = _clean_secret_value(mapping[actual_key])
+        except Exception:
+            value = ""
+        if value:
+            return value
+    return ""
 
 
 def cloudflare_secret(name, nested_key, default=""):
-    """Accept top-level Streamlit keys or a Cloudflare TOML section."""
-    value = secret(name, "")
+    """Accept top-level, nested, and environment Cloudflare secrets."""
+    aliases = {
+        "CLOUDFLARE_ACCOUNT_ID": [
+            "CLOUDFLARE_ACCOUNT_ID", "account_id", "ACCOUNT_ID",
+        ],
+        "CLOUDFLARE_API_TOKEN": [
+            "CLOUDFLARE_API_TOKEN", "api_token", "API_TOKEN",
+        ],
+        "CLOUDFLARE_IMAGE_MODEL": [
+            "CLOUDFLARE_IMAGE_MODEL", "image_model", "IMAGE_MODEL",
+        ],
+    }
+    candidates = aliases.get(name, [name, nested_key])
+
+    # First: root-level keys in Streamlit Secrets.
+    value = _secret_mapping_value(st.secrets, candidates)
     if value:
         return value
 
+    # Next: any section named "cloudflare", regardless of capitalization.
     try:
-        section = st.secrets.get("cloudflare", {})
-        if hasattr(section, "get"):
-            value = section.get(nested_key) or section.get(name)
-            if value is not None and str(value).strip():
-                return str(value).strip()
+        root_keys = list(st.secrets.keys())
     except Exception:
-        pass
+        root_keys = []
+
+    for section_key in root_keys:
+        if str(section_key).casefold() not in {
+            "cloudflare", "cloudflare_credentials", "cloudflare_secrets",
+        }:
+            continue
+        try:
+            section = st.secrets[section_key]
+            value = _secret_mapping_value(section, candidates)
+            if value:
+                return value
+        except Exception:
+            continue
+
+    # Finally: matching environment variables.
+    for candidate in candidates:
+        value = _clean_secret_value(os.environ.get(candidate))
+        if value:
+            return value
 
     return default
+
+
+def cloudflare_secret_diagnostics():
+    """Return names/presence only; never return any secret values."""
+    try:
+        root_keys = list(st.secrets.keys())
+        root_count = len(root_keys)
+    except Exception:
+        root_keys = []
+        root_count = 0
+
+    cf_root_keys = [
+        str(key) for key in root_keys
+        if "cloudflare" in str(key).casefold()
+    ]
+    nested_keys = []
+    nested_sections = []
+    for section_key in root_keys:
+        if str(section_key).casefold() not in {
+            "cloudflare", "cloudflare_credentials", "cloudflare_secrets",
+        }:
+            continue
+        nested_sections.append(str(section_key))
+        try:
+            nested_keys.extend(
+                str(key) for key in st.secrets[section_key].keys()
+            )
+        except Exception:
+            pass
+
+    return {
+        "root_count": root_count,
+        "cloudflare_root_keys": cf_root_keys,
+        "cloudflare_sections": nested_sections,
+        "cloudflare_nested_keys": nested_keys,
+        "account_env": bool(_clean_secret_value(os.environ.get("CLOUDFLARE_ACCOUNT_ID"))),
+        "token_env": bool(_clean_secret_value(os.environ.get("CLOUDFLARE_API_TOKEN"))),
+    }
 
 
 for name in (
@@ -1744,9 +1838,32 @@ if st.session_state.ma_show_attach_panel:
                     + "Account ID: " + ("✅ detected" if account_id_found else "❌ missing") + "  \n"
                     + "API token: " + ("✅ detected" if api_token_found else "❌ missing")
                 )
+                secret_debug = cloudflare_secret_diagnostics()
                 st.caption(
-                    "Add the credentials to this exact Streamlit app under Manage app → "
-                    "Settings → Secrets. Values are checked privately and never displayed."
+                    "Streamlit Secrets loaded: "
+                    + str(secret_debug["root_count"])
+                    + " top-level key(s)."
+                )
+                st.caption(
+                    "Cloudflare-related top-level key names: "
+                    + (", ".join(secret_debug["cloudflare_root_keys"]) or "none")
+                )
+                st.caption(
+                    "Cloudflare section names: "
+                    + (", ".join(secret_debug["cloudflare_sections"]) or "none")
+                )
+                st.caption(
+                    "Keys inside Cloudflare section(s): "
+                    + (", ".join(secret_debug["cloudflare_nested_keys"]) or "none")
+                )
+                st.caption(
+                    "Environment variables present: Account ID "
+                    + ("yes" if secret_debug["account_env"] else "no")
+                    + "; API token "
+                    + ("yes" if secret_debug["token_env"] else "no")
+                )
+                st.caption(
+                    "Only setting names and yes/no status are shown. Secret values are never displayed."
                 )
                 st.markdown("**Format A — top-level Secrets**")
                 st.code(
