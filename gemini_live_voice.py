@@ -81,7 +81,7 @@ HTML = r'''
         <button class="gl-start" type="button"><span>Start talking</span></button>
         <button class="gl-end" type="button" disabled><span>■</span><small>End</small></button>
       </div>
-      <p class="gl-footnote">Microphone access is required. Audio is streamed to Google Gemini Live to generate responses.</p>
+      <p class="gl-footnote">Microphone access is required. On Android, use Chrome and tap Allow when it asks for microphone access. Audio is streamed to Google Gemini Live to generate responses.</p>
     </main>
   </div>
 </div>
@@ -108,7 +108,7 @@ CSS = r'''
 .gl-actions{display:flex;align-items:center;justify-content:center;gap:27px;margin:19px 0 8px}
 .gl-actions button{cursor:pointer;border:0;color:white}.gl-actions button:disabled{opacity:.38;cursor:not-allowed}
 .gl-mute,.gl-end{width:55px;height:55px;border-radius:50%;background:#20374a;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px}.gl-mute span{font-size:20px}.gl-end span{font-size:18px;color:#ff9eab}.gl-actions small{font-size:9px;color:#c3d3df}
-.gl-start{min-width:150px;padding:15px 22px;border-radius:999px;background:linear-gradient(110deg,#087d78,#1473b8);font-size:13px;font-weight:750;box-shadow:0 7px 24px #087d7855}.gl-start:hover{filter:brightness(1.12)}
+.gl-start{min-width:150px;min-height:54px;padding:15px 22px;border-radius:999px;background:linear-gradient(110deg,#087d78,#1473b8);font-size:13px;font-weight:750;box-shadow:0 7px 24px #087d7855;touch-action:manipulation;-webkit-tap-highlight-color:transparent}.gl-start:hover{filter:brightness(1.12)}
 .gl-footnote{font-size:9px;line-height:1.4;color:#70869a;max-width:490px;margin:7px 0 0}
 @media(max-width:560px){.gl-shell{padding:0}.gl-card{height:100dvh;border-radius:0;border:0}.gl-header{padding:14px 15px}.gl-main{padding:26px 15px 15px}.gl-transcript{grid-template-columns:1fr;gap:8px}.gl-line p{max-height:68px}.gl-orb-area{min-height:145px}.gl-actions{gap:20px}}
 @media(prefers-reduced-motion:reduce){.gl-orb{animation:none!important}}
@@ -293,7 +293,7 @@ export default function(component) {
     const requestId = (state.micRequestId || 0) + 1;
     state.micRequestId = requestId;
 
-    if (!state.ctx) {
+    if (!state.ctx || state.ctx.state === "closed") {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       if (!AudioContextClass) throw new Error("This browser does not support audio.");
       state.ctx = new AudioContextClass();
@@ -326,7 +326,8 @@ export default function(component) {
     state.stream = stream;
     state.source = state.ctx.createMediaStreamSource(state.stream);
     // 2048 frames at 48 kHz is about 43 ms per packet, reducing input latency.
-    state.processor = state.ctx.createScriptProcessor(2048, 1, 1);
+    // About 85–93 ms per chunk on common 48 kHz / 44.1 kHz phone audio devices.
+    state.processor = state.ctx.createScriptProcessor(4096, 1, 1);
 
     state.processor.onaudioprocess = (event) => {
       event.outputBuffer.getChannelData(0).fill(0);
@@ -502,8 +503,13 @@ export default function(component) {
       return;
     }
 
+    if (!window.isSecureContext) {
+      setStatus("Microphone access requires the secure HTTPS Merge AI website. Open the official app URL in Chrome.", "error");
+      return;
+    }
+
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setStatus("Microphone access requires a supported browser and HTTPS.", "error");
+      setStatus("This browser does not provide microphone access. Open Merge AI in the latest Chrome browser.", "error");
       return;
     }
 
@@ -527,10 +533,15 @@ export default function(component) {
       });
       await Promise.race([microphoneReady, permissionTimeout]);
     } catch (error) {
-      closeAll(
-        "Microphone setup failed: " + (error.message || "permission denied"),
-        "error"
-      );
+      let detail = error.message || "permission denied";
+      if (error.name === "NotAllowedError" || error.name === "SecurityError") {
+        detail = "Microphone permission was blocked. In Android Chrome, tap the site icon beside the address, open Permissions, set Microphone to Allow, then reload Merge AI and try again.";
+      } else if (error.name === "NotFoundError" || error.name === "DevicesNotFoundError") {
+        detail = "No microphone was found. Check that your Android phone has a working microphone.";
+      } else if (error.name === "NotReadableError" || error.name === "TrackStartError") {
+        detail = "The microphone is busy in another app. Close other apps using the microphone and try again.";
+      }
+      closeAll("Microphone setup failed: " + detail, "error");
       return;
     } finally {
       if (microphoneTimer) clearTimeout(microphoneTimer);
@@ -586,14 +597,14 @@ export default function(component) {
 
       const setup = {
         model: "models/gemini-3.8-live",
-        generationConfig: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: "Puck" }
-            }
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: "Puck" }
           }
         },
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
         systemInstruction: {
           parts: [{
             text: String(
