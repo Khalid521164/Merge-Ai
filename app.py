@@ -1131,11 +1131,23 @@ with st.sidebar:
             else:
                 st.info("Setup required — Meta app configuration is not complete.")
             st.link_button("Official setup guide", item["docs_url"])
-        st.caption(
-            "Publishing, comment replies, deletes, and outbound messages will "
-            "always require a preview and a separate confirmation."
+        st.markdown("**Facebook messaging — two separate modes**")
+        st.info(
+            "**Personal profile:** draft-and-handoff only. Merge AI can prepare "
+            "the words and open Messenger, but you choose the conversation and "
+            "press Send yourself. It will not log into or automate a personal account."
         )
-        st.markdown("[View the Social Hub implementation plan](https://github.com/Khalid521164/Merge-Ai/blob/khalid/same-background-color/META_SOCIAL_SETUP.md)")
+        st.warning(
+            "**Facebook Page:** future support is limited to genuine Page inbox "
+            "customer-support replies under Meta permissions and messaging rules. "
+            "It cannot be used to relay personal messages to friends or family."
+        )
+        st.link_button(
+            "Messenger Send API requirements",
+            "https://developers.facebook.com/docs/messenger-platform/send-messages",
+        )
+        st.caption("No Facebook account is connected. No message has been drafted, sent, or transmitted by this preview.")
+        st.markdown("[View the Social Hub implementation plan](https://github.com/Khalid521164/Merge-Ai/blob/khalid/same-background-color/META_SOCIAL_SETUP.md) · [Facebook messaging design](https://github.com/Khalid521164/Merge-Ai/blob/khalid/same-background-color/FACEBOOK_MESSAGING_DESIGN.md)")
 
     with st.expander("ℹ️ About Merge AI"):
         st.write("**Created by:** " + CREATOR_NAME)
