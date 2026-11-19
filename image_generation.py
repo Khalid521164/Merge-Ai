@@ -67,23 +67,68 @@ def generate_image(
     except requests.RequestException as exc:
         raise ImageGenerationError("Merge AI could not reach Cloudflare. Check the connection and try again.") from exc
 
+    def safe_api_detail() -> str:
+        """Extract a short provider error without ever echoing credential values."""
+        try:
+            body = response.json()
+        except ValueError:
+            return ""
+        errors = body.get("errors") if isinstance(body, dict) else None
+        if not isinstance(errors, list):
+            return ""
+        details = []
+        for item in errors[:2]:
+            if not isinstance(item, dict):
+                continue
+            code = item.get("code")
+            message = str(item.get("message") or "").strip()
+            if api_token:
+                message = message.replace(api_token, "[hidden]")
+            if account_id:
+                message = message.replace(account_id, "[hidden]")
+            if message:
+                details.append((f"Error {code}: " if code is not None else "") + message[:180])
+        return " ".join(details)
+
     if response.status_code == 401:
-        raise ImageGenerationError("Cloudflare rejected the API token. Ask the account owner to check the token permissions.")
+        detail = safe_api_detail()
+        raise ImageGenerationError(
+            "Cloudflare rejected the API token. Check that it is a Workers AI token "
+            "for this account and has Workers AI permissions. " + detail
+        )
     if response.status_code == 403:
-        raise ImageGenerationError("This Cloudflare token does not have permission to run Workers AI.")
+        detail = safe_api_detail()
+        raise ImageGenerationError(
+            "This token does not have permission to run Workers AI. "
+            "Create a Workers AI API Token or grant Workers AI Read and Edit permissions. " + detail
+        )
     if response.status_code == 429:
-        raise ImageGenerationError("Cloudflare is rate-limiting image requests. Please wait and try again.")
+        detail = safe_api_detail()
+        raise ImageGenerationError(
+            "Cloudflare is rate-limiting image requests or the free allowance may be exhausted. "
+            "Wait for the limit to reset, then try again. " + detail
+        )
     if response.status_code >= 400:
-        # Do not display raw provider responses, which can contain account details.
+        detail = safe_api_detail()
         raise ImageGenerationError(
             f"Cloudflare image generation returned HTTP {response.status_code}. "
-            "The daily free allowance may be used up, or the model may be unavailable."
+            + (detail or "Check the model, account, token permissions, and free allowance.")
         )
+
+    content_type = str(response.headers.get("Content-Type", "")).lower()
+    if content_type.startswith("image/") or content_type == "application/octet-stream":
+        if not response.content:
+            raise ImageGenerationError("Cloudflare returned an empty image response.")
+        mime_type = content_type.split(";", 1)[0] if content_type.startswith("image/") else "image/jpeg"
+        return response.content, mime_type, "Here is the image you asked Merge AI to create."
 
     try:
         data = response.json()
     except ValueError as exc:
-        raise ImageGenerationError("Cloudflare returned an unreadable image response.") from exc
+        raise ImageGenerationError(
+            "Cloudflare returned an unreadable response instead of image data. "
+            "Please retry and check the selected Workers AI model."
+        ) from exc
 
     result = data.get("result")
     if not data.get("success", True):
