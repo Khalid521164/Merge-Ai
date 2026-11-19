@@ -1700,34 +1700,41 @@ if st.session_state.ma_show_attach_panel:
         elif action == "image":
             st.divider()
             st.markdown("#### Create an image")
-            image_enabled = str(secret("ENABLE_IMAGE_GENERATION", "false")).strip().lower() in {
-                "1", "true", "yes", "on"
-            }
-            if not image_enabled:
+            cloudflare_account_id = secret("CLOUDFLARE_ACCOUNT_ID")
+            cloudflare_api_token = secret("CLOUDFLARE_API_TOKEN")
+            if not cloudflare_account_id or not cloudflare_api_token:
                 st.info(
-                    "Image generation is locked until the account owner enables it. "
-                    "Gemini image generation is billed separately and can incur charges."
+                    "Free image generation uses Cloudflare Workers AI. "
+                    "The account owner needs to connect a Cloudflare Free account first."
                 )
                 st.markdown(
-                    "[Review Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing)"
+                    "[Open Cloudflare Workers AI setup](https://dash.cloudflare.com/?to=/:account/workers/ai)"
                 )
                 st.caption(
-                    "The account owner can enable it by setting "
-                    "`ENABLE_IMAGE_GENERATION = \"true\"` in Streamlit Secrets "
-                    "after checking the billing settings."
+                    "In Workers AI, choose **Use REST API → Create a Workers AI API Token**. "
+                    "Then add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to this app's "
+                    "Streamlit Secrets. Never paste the token into chat or GitHub."
+                )
+                st.caption(
+                    "Cloudflare includes 10,000 free neurons each day. On the Free plan, "
+                    "image requests stop when the daily allowance is exhausted; they do not "
+                    "automatically switch to paid usage."
                 )
             else:
                 image_prompt = st.text_area(
                     "Describe the picture you want",
                     placeholder="A futuristic city at sunset, cinematic lighting, highly detailed...",
-                    max_chars=1500,
+                    max_chars=1800,
                     height=105,
                     key="ma_image_prompt",
                 )
-                image_model = secret("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-lite-image")
+                image_model = secret(
+                    "CLOUDFLARE_IMAGE_MODEL",
+                    "@cf/black-forest-labs/flux-1-schnell",
+                )
                 st.caption(
-                    f"Powered by Gemini · Model: {image_model}. "
-                    "Each generation sends your prompt to Google and may incur API charges."
+                    f"Free daily tier · Cloudflare Workers AI · {image_model}. "
+                    "The free allowance is shared with other Workers AI usage in this account."
                 )
                 if st.button("Generate image", type="primary", key="ma_generate_image"):
                     if not image_prompt.strip():
@@ -1737,7 +1744,8 @@ if st.session_state.ma_show_attach_panel:
                             with st.spinner("Merge AI is creating your image..."):
                                 image_bytes, mime_type, image_note = generate_image(
                                     image_prompt,
-                                    secret("GEMINI_API_KEY"),
+                                    cloudflare_account_id,
+                                    cloudflare_api_token,
                                     image_model,
                                 )
                             image_key = uuid.uuid4().hex
