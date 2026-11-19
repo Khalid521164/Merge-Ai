@@ -1700,25 +1700,36 @@ if st.session_state.ma_show_attach_panel:
         elif action == "image":
             st.divider()
             st.markdown("#### Create an image")
-            cloudflare_account_id = secret("CLOUDFLARE_ACCOUNT_ID")
-            cloudflare_api_token = secret("CLOUDFLARE_API_TOKEN")
-            if not cloudflare_account_id or not cloudflare_api_token:
+            cloudflare_account_id = secret("CLOUDFLARE_ACCOUNT_ID").strip()
+            cloudflare_api_token = secret("CLOUDFLARE_API_TOKEN").strip()
+            account_id_found = bool(cloudflare_account_id)
+            api_token_found = bool(cloudflare_api_token)
+            if not account_id_found or not api_token_found:
                 st.info(
                     "Free image generation uses Cloudflare Workers AI. "
-                    "The account owner needs to connect a Cloudflare Free account first."
+                    "Streamlit is not detecting all required credentials yet."
                 )
                 st.markdown(
                     "[Open Cloudflare Workers AI setup](https://dash.cloudflare.com/?to=/:account/workers/ai)"
                 )
                 st.caption(
                     "In Workers AI, choose **Use REST API → Create a Workers AI API Token**. "
-                    "Then add CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN to this app's "
-                    "Streamlit Secrets. Never paste the token into chat or GitHub."
+                    "Add the values to this preview app's **Streamlit Secrets**. "
+                    "Cloudflare Dashboard API tokens by themselves are not automatically "
+                    "available to this app."
+                )
+                st.markdown(
+                    "**Credential check**  \n"
+                    + "Account ID: " + ("✅ detected" if account_id_found else "❌ missing") + "  \n"
+                    + "API token: " + ("✅ detected" if api_token_found else "❌ missing")
                 )
                 st.caption(
-                    "Cloudflare includes 10,000 free neurons each day. On the Free plan, "
-                    "image requests stop when the daily allowance is exhausted; they do not "
-                    "automatically switch to paid usage."
+                    "Only presence is checked; secret values are never displayed. "
+                    "After saving Secrets, reboot this preview app."
+                )
+                st.caption(
+                    "Cloudflare's Free plan includes 10,000 free neurons daily. "
+                    "Requests stop when the daily allowance is exhausted."
                 )
             else:
                 image_prompt = st.text_area(
