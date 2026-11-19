@@ -906,6 +906,121 @@ html, body, .stApp, [data-testid="stAppViewContainer"],
 }
 
 
+
+/* ===== Desktop-only layout restoration: keep mobile rules untouched ===== */
+@media (min-width: 769px) {
+    .st-key-ma_mobile_menu_button_wrap,
+    .st-key-ma_mobile_sidebar {
+        display: none !important;
+    }
+
+    /* Center the composer in the content area beside the desktop sidebar. */
+    .st-key-ma_chat_composer {
+        position: fixed !important;
+        left: calc(50% + 139px) !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        width: min(920px, calc(100vw - 360px)) !important;
+        max-width: 920px !important;
+        bottom: 28px !important;
+        box-sizing: border-box !important;
+        display: block !important;
+        padding: 7px 10px !important;
+        border-radius: 28px !important;
+        background: #0F161F !important;
+        border: 1px solid #2C3A4B !important;
+        box-shadow: 0 8px 30px rgba(0,0,0,.38) !important;
+        z-index: 99999 !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stVerticalBlock"] {
+        gap: 0 !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) {
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        width: 100% !important;
+        gap: 8px !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"] {
+        min-width: 0 !important;
+        padding: 0 !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(1),
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(2) {
+        flex: 0 0 44px !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(3) {
+        flex: 1 1 auto !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(4) {
+        display: block !important;
+        flex: 0 0 74px !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stForm"] {
+        width: 100% !important;
+        min-width: 0 !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        border: 0 !important;
+        background: transparent !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_send_button) {
+        display: grid !important;
+        grid-template-columns: minmax(0,1fr) 40px !important;
+        gap: 8px !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+    .st-key-ma_chat_composer [data-testid="stTextInput"] input {
+        width: 100% !important;
+        height: 44px !important;
+        color: #F3F7FB !important;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        font-size: 15px !important;
+    }
+    .st-key-ma_chat_voice_button button,
+    .st-key-ma_chat_attach_button button {
+        width: 40px !important;
+        min-width: 40px !important;
+        height: 40px !important;
+        min-height: 40px !important;
+        border-radius: 50% !important;
+    }
+    .st-key-ma_chat_voice_button button {
+        color: #FFFFFF !important;
+        background: #147353 !important;
+        border: 1px solid #24A879 !important;
+    }
+    .st-key-ma_chat_think_button button {
+        width: 74px !important;
+        min-width: 74px !important;
+        height: 40px !important;
+        min-height: 40px !important;
+        border-radius: 20px !important;
+    }
+
+    .st-key-ma_chat_attach_panel {
+        position: fixed !important;
+        left: calc(50% + 139px) !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        width: min(690px, calc(100vw - 380px)) !important;
+        max-width: 690px !important;
+        bottom: 88px !important;
+        max-height: min(62vh, 390px) !important;
+        overflow-y: auto !important;
+        box-sizing: border-box !important;
+        background: #0E1722 !important;
+        border: 1px solid #2B3A4C !important;
+        border-radius: 20px !important;
+        box-shadow: 0 12px 34px rgba(0,0,0,.5) !important;
+        z-index: 100000 !important;
+    }
+}
+
 /* ===== Merge AI dark interface + phone navigation (Nov 2026) ===== */
 :root, html, body {
     color-scheme: dark !important;
