@@ -824,6 +824,13 @@ html, body, .stApp, [data-testid="stAppViewContainer"],
     color: #26332C !important;
     background: #F0F3F1 !important;
 }
+.st-key-ma_chat_voice_button button {
+    color: #147353 !important;
+    background: #E3F3EC !important;
+    border: 1px solid #C9E8D8 !important;
+    touch-action: manipulation !important;
+    -webkit-tap-highlight-color: transparent !important;
+}
 .st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
     color: #FFFFFF !important;
     background: #147353 !important;
@@ -867,10 +874,10 @@ html, body, .stApp, [data-testid="stAppViewContainer"],
         padding: 0 !important;
         flex-shrink: 0 !important;
     }
-    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(1) { flex: 0 0 36px !important; }
-    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(2) { flex: 1 1 auto !important; }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(1) { flex: 0 0 40px !important; }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(2) { flex: 1 1 auto !important; min-width: 0 !important; }
     .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(3) { flex: 0 0 54px !important; }
-    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(4) { flex: 0 0 36px !important; }
+    .st-key-ma_chat_composer [data-testid="stHorizontalBlock"]:has(.st-key-ma_chat_attach_button) > [data-testid="column"]:nth-child(4) { flex: 0 0 40px !important; }
     .st-key-ma_chat_composer [data-testid="stForm"] { width: 100% !important; min-width: 0 !important; }
     .st-key-ma_chat_composer [data-testid="stTextInput"] input {
         height: 40px !important;
@@ -880,10 +887,10 @@ html, body, .stApp, [data-testid="stAppViewContainer"],
     .st-key-ma_chat_attach_button button,
     .st-key-ma_chat_voice_button button,
     .st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
-        width: 34px !important;
-        min-width: 34px !important;
-        height: 34px !important;
-        min-height: 34px !important;
+        width: 36px !important;
+        min-width: 36px !important;
+        height: 36px !important;
+        min-height: 36px !important;
         padding: 0 !important;
         border-radius: 50% !important;
     }
