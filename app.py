@@ -4,14 +4,24 @@
 import html
 import json
 import os
+from pathlib import Path
 import time
 import uuid
 
 import streamlit as st
+from PIL import Image
+
+# Resolve the favicon relative to this file, not the process working directory.
+_MERGE_AI_ICON_PATH = Path(__file__).resolve().parent / "merge_ai_icon.png"
+try:
+    _MERGE_AI_PAGE_ICON = Image.open(_MERGE_AI_ICON_PATH).convert("RGB")
+except (OSError, ValueError) as _icon_error:
+    # Avoid falling back to Streamlit branding if the custom image is unavailable.
+    _MERGE_AI_PAGE_ICON = "🟣"
 
 st.set_page_config(
     page_title="Merge AI",
-    page_icon="merge_ai_icon.png",
+    page_icon=_MERGE_AI_PAGE_ICON,
     layout="wide",
     initial_sidebar_state="expanded",
 )
