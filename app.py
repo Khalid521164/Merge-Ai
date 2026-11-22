@@ -13,7 +13,7 @@ st.set_page_config(
     page_title="Merge AI",
     page_icon="merge_ai_icon.png",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 
@@ -2128,7 +2128,7 @@ if active_chat() is None:
 
 # ===================== SIDEBAR =====================
 
-with st.sidebar:
+with st.container(key="ma_desktop_sidebar"):
 
     st.markdown(
         '<div class="m-brand">'
@@ -2206,9 +2206,9 @@ with st.sidebar:
             continue
 
         prefix = (
-            "🟢 "
+            "✦  "
             if c["id"] == st.session_state.ma_active
-            else "💬 "
+            else "◦  "
         )
 
         if st.button(
@@ -2720,7 +2720,138 @@ if st.session_state.ma_voice_screen:
         [data-testid="stSidebar"] {display:none!important}
         [data-testid="stHeader"] {display:none!important}
         .block-container {max-width:100%!important;padding:0!important;margin:0!important}
-        </style>
+        
+/* ===== Always-visible desktop navigation panel ===== */
+@media (min-width: 769px) {
+    /* The Streamlit native sidebar is replaced by this branded panel. */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="collapsedControl"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
+
+    .st-key-ma_desktop_sidebar {
+        position: fixed !important;
+        inset: 0 auto 0 0 !important;
+        width: 280px !important;
+        min-width: 280px !important;
+        max-width: 280px !important;
+        height: 100dvh !important;
+        box-sizing: border-box !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        overscroll-behavior: contain !important;
+        padding: 20px 15px 26px !important;
+        background: linear-gradient(180deg, #FAF8FE 0%, #F5F1FB 100%) !important;
+        border-right: 1px solid #E8E0F2 !important;
+        box-shadow: 8px 0 28px rgba(58, 35, 91, .035) !important;
+        z-index: 100050 !important;
+    }
+    .st-key-ma_desktop_sidebar > div,
+    .st-key-ma_desktop_sidebar [data-testid="stVerticalBlock"] {
+        width: 100% !important;
+        min-width: 0 !important;
+        gap: 9px !important;
+    }
+    .st-key-ma_desktop_sidebar .m-brand {
+        margin: 3px 0 16px !important;
+        padding: 2px 2px 15px !important;
+        border-bottom: 1px solid #E9E1F3 !important;
+    }
+    .st-key-ma_desktop_sidebar .m-logo {
+        width: 37px !important;
+        height: 37px !important;
+        flex: 0 0 37px !important;
+        border-radius: 12px !important;
+        font-size: 19px !important;
+    }
+    .st-key-ma_desktop_sidebar .m-name {
+        font-size: 20px !important;
+    }
+    .st-key-ma_desktop_sidebar [data-testid="stCaptionContainer"],
+    .st-key-ma_desktop_sidebar [data-testid="stCaptionContainer"] p {
+        color: #897E98 !important;
+        font-size: 10px !important;
+        font-weight: 750 !important;
+        letter-spacing: 1.05px !important;
+        text-transform: uppercase !important;
+    }
+    .st-key-ma_desktop_sidebar .stButton > button,
+    .st-key-ma_desktop_sidebar .stDownloadButton > button {
+        width: 100% !important;
+        min-height: 39px !important;
+        height: auto !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        padding: 8px 11px !important;
+        border: 1px solid transparent !important;
+        border-radius: 11px !important;
+        background: transparent !important;
+        color: #40364F !important;
+        box-shadow: none !important;
+        font-size: 13px !important;
+        font-weight: 540 !important;
+        transition: background .16s ease, border-color .16s ease, color .16s ease !important;
+    }
+    .st-key-ma_desktop_sidebar .stButton > button:hover,
+    .st-key-ma_desktop_sidebar .stDownloadButton > button:hover {
+        background: #EEE8F8 !important;
+        border-color: #E2D7F1 !important;
+        color: #6339C7 !important;
+    }
+    .st-key-ma_desktop_sidebar [data-testid="stTextInput"] input,
+    .st-key-ma_desktop_sidebar [data-testid="stTextArea"] textarea {
+        min-height: 38px !important;
+        color: #2F263B !important;
+        background: #FFFFFF !important;
+        border: 1px solid #E5DDED !important;
+        border-radius: 11px !important;
+    }
+    .st-key-ma_desktop_sidebar [data-testid="stTextInput"] input:focus,
+    .st-key-ma_desktop_sidebar [data-testid="stTextArea"] textarea:focus {
+        border-color: #A889EA !important;
+        box-shadow: 0 0 0 2px rgba(117,70,232,.10) !important;
+    }
+    .st-key-ma_desktop_sidebar [data-testid="stExpander"] {
+        background: rgba(255,255,255,.72) !important;
+        border: 1px solid #E8E0F1 !important;
+        border-radius: 13px !important;
+    }
+    .st-key-ma_desktop_sidebar [data-testid="stExpander"] summary,
+    .st-key-ma_desktop_sidebar [data-testid="stExpander"] summary span {
+        color: #493B5D !important;
+        font-size: 12px !important;
+        font-weight: 650 !important;
+    }
+    .st-key-ma_desktop_sidebar hr {
+        margin: 7px 0 !important;
+        border-color: #E9E1F2 !important;
+    }
+    .st-key-ma_desktop_sidebar [data-testid="stSelectbox"] label,
+    .st-key-ma_desktop_sidebar [data-testid="stCheckbox"] label,
+    .st-key-ma_desktop_sidebar [data-testid="stToggle"] label {
+        color: #493F58 !important;
+        font-size: 12px !important;
+    }
+
+    /* Center the chat canvas in the space to the right of the panel. */
+    .block-container {
+        position: relative !important;
+        left: clamp(100px, 7.2vw, 145px) !important;
+    }
+}
+
+/* Mobile keeps its existing compact menu button and slide-out drawer. */
+@media (max-width: 768px) {
+    .st-key-ma_desktop_sidebar {
+        display: none !important;
+    }
+}
+
+</style>
         """,
         unsafe_allow_html=True,
     )
