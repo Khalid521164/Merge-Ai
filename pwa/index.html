@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#7546e8">
+  <meta name="description" content="Merge AI brings multiple AI models together to create one stronger answer.">
+  <meta name="application-name" content="Merge AI">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Merge AI">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <title>Merge AI</title>
+  <style>
+    :root { color-scheme: light; --violet:#7546e8; --ink:#241a36; --line:#e9e1f5; }
+    * { box-sizing:border-box; }
+    html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#fbfaff; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+    .shell { display:flex; flex-direction:column; width:100%; height:100dvh; min-height:100svh; padding-top:env(safe-area-inset-top); background:#fbfaff; }
+    .topbar { flex:0 0 58px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px; border-bottom:1px solid var(--line); background:rgba(255,255,255,.94); }
+    .brand { display:flex; align-items:center; gap:10px; color:var(--ink); font-size:15px; font-weight:750; letter-spacing:-.25px; }
+    .brand img { width:32px; height:32px; border-radius:10px; box-shadow:0 4px 12px rgba(91,52,187,.18); }
+    .actions { display:flex; align-items:center; gap:8px; }
+    .install, .open-app { border:1px solid #e5daf8; border-radius:999px; padding:9px 13px; text-decoration:none; font:650 12px/1 inherit; cursor:pointer; white-space:nowrap; }
+    .install { display:none; color:#6137c7; background:#f4efff; }
+    .open-app { color:white; background:linear-gradient(135deg,#8959f3,#6538d6); box-shadow:0 4px 12px rgba(112,65,219,.18); }
+    .frame-wrap { position:relative; flex:1 1 auto; min-height:0; background:#fbfaff; }
+    iframe { display:block; width:100%; height:100%; border:0; background:#fbfaff; }
+    .offline { display:none; position:absolute; left:12px; right:12px; bottom:12px; padding:10px 13px; border:1px solid #eadff8; border-radius:14px; color:#5e4d78; background:rgba(255,255,255,.96); box-shadow:0 5px 20px rgba(40,25,65,.08); font-size:12px; text-align:center; }
+    .offline.show { display:block; }
+    @media(max-width:480px) {
+      .topbar { flex-basis:54px; padding:0 11px; }
+      .brand { font-size:14px; gap:8px; }
+      .brand img { width:30px; height:30px; }
+      .install,.open-app { padding:8px 10px; font-size:11px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand"><img src="./icons/icon-192.png" alt=""><span>Merge AI</span></div>
+      <div class="actions">
+        <button class="install" id="installButton" type="button">Install app</button>
+        <a class="open-app" href="https://mergeai.streamlit.app/" target="_top" rel="noopener">Open full app ↗</a>
+      </div>
+    </header>
+    <section class="frame-wrap" aria-label="Merge AI workspace">
+      <iframe
+        id="mergeFrame"
+        title="Merge AI workspace"
+        src="https://mergeai.streamlit.app/?embed=true&amp;embed_options=light_theme&amp;embed_options=hide_loading_screen"
+        allow="camera; microphone; clipboard-read; clipboard-write; fullscreen"
+        allowfullscreen
+        referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      <div class="offline" id="offlineNotice">The app shell is available, but an internet connection is needed to use AI. Reconnect and reload Merge AI.</div>
+    </section>
+  </main>
+  <script>
+    (function () {
+      const notice = document.getElementById('offlineNotice');
+      const installButton = document.getElementById('installButton');
+      function updateConnection() { notice.classList.toggle('show', !navigator.onLine); }
+      window.addEventListener('online', updateConnection);
+      window.addEventListener('offline', updateConnection);
+      updateConnection();
+
+      let installPrompt = null;
+      window.addEventListener('beforeinstallprompt', (event) => {
+        event.preventDefault();
+        installPrompt = event;
+        installButton.style.display = 'inline-flex';
+      });
+      installButton.addEventListener('click', async () => {
+        if (!installPrompt) return;
+        installPrompt.prompt();
+        await installPrompt.userChoice;
+        installPrompt = null;
+        installButton.style.display = 'none';
+      });
+
+      if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js', { scope: './' }).catch((error) => {
+            console.warn('Merge AI offline shell could not be registered:', error);
+          });
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+Merge AI PWA deployment
+
+1. Enable GitHub Pages in repository Settings > Pages.
+2. Set Build and deployment Source to GitHub Actions.
+3. Trigger the workflow: Actions > Deploy Merge AI PWA to GitHub Pages > Run workflow.
+4. After success, open https://khalid521164.github.io/Merge-Ai/.
+5. iPhone: open the URL in Safari > Share > Add to Home Screen.
+6. Android: open the URL in Chrome > Install app / Add to Home screen.
+
+The icons in pwa/icons/ are resized versions of the existing purple Merge AI M logo.
