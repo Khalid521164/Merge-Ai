@@ -3005,6 +3005,13 @@ if not chat["messages"]:
         unsafe_allow_html=True,
     )
 
+    st.link_button(
+        "📲 Install Merge AI on your phone",
+        "https://khalid521164.github.io/Merge-Ai/",
+        type="primary",
+        help="Open the Merge AI phone install page.",
+    )
+
 
 # ===================== MESSAGES =====================
 
