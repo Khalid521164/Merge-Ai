@@ -23,12 +23,26 @@
     .brand img { width:32px; height:32px; border-radius:10px; box-shadow:0 4px 12px rgba(91,52,187,.18); }
     .actions { display:flex; align-items:center; gap:8px; }
     .install, .open-app { border:1px solid #e5daf8; border-radius:999px; padding:9px 13px; text-decoration:none; font:650 12px/1 inherit; cursor:pointer; white-space:nowrap; }
-    .install { display:none; color:#6137c7; background:#f4efff; }
+    .install { display:inline-flex; align-items:center; justify-content:center; color:#6137c7; background:#f4efff; }
     .open-app { color:white; background:linear-gradient(135deg,#8959f3,#6538d6); box-shadow:0 4px 12px rgba(112,65,219,.18); }
     .frame-wrap { position:relative; flex:1 1 auto; min-height:0; background:#fbfaff; }
     iframe { display:block; width:100%; height:100%; border:0; background:#fbfaff; }
     .offline { display:none; position:absolute; left:12px; right:12px; bottom:12px; padding:10px 13px; border:1px solid #eadff8; border-radius:14px; color:#5e4d78; background:rgba(255,255,255,.96); box-shadow:0 5px 20px rgba(40,25,65,.08); font-size:12px; text-align:center; }
     .offline.show { display:block; }
+
+    .install-guide { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:18px; background:rgba(28,18,47,.36); backdrop-filter:blur(5px); }
+    .install-guide[hidden] { display:none; }
+    .guide-card { position:relative; width:min(100%,420px); padding:25px 22px 21px; border:1px solid #e6dcf5; border-radius:24px; background:#fff; color:var(--ink); box-shadow:0 18px 60px rgba(33,20,58,.22); }
+    .guide-close { position:absolute; top:10px; right:12px; width:34px; height:34px; border:0; border-radius:50%; background:#f4effb; color:#6040a1; font-size:23px; cursor:pointer; }
+    .guide-mark { display:grid; place-items:center; width:46px; height:46px; margin-bottom:14px; border-radius:14px; color:#fff; background:linear-gradient(135deg,#8959f3,#6538d6); font-weight:800; font-size:22px; box-shadow:0 6px 16px rgba(112,65,219,.22); }
+    .guide-card h2 { margin:0 0 8px; font-size:20px; letter-spacing:-.4px; }
+    .guide-card p { color:#655a75; font-size:13px; line-height:1.55; }
+    .guide-instructions { margin-top:14px; padding:12px 14px; border:1px solid #eee7f7; border-radius:15px; background:#faf8fe; }
+    .guide-instructions p { margin:5px 0 12px; }
+    .guide-instructions p:last-child { margin-bottom:5px; }
+    .guide-instructions strong { color:#432d70; }
+    .guide-foot { margin:13px 0 0; font-size:11px !important; }
+
     @media(max-width:480px) {
       .topbar { flex-basis:54px; padding:0 11px; }
       .brand { font-size:14px; gap:8px; }
@@ -42,7 +56,7 @@
     <header class="topbar">
       <div class="brand"><img src="./icons/icon-192.png" alt=""><span>Merge AI</span></div>
       <div class="actions">
-        <button class="install" id="installButton" type="button">Install app</button>
+        <button class="install" id="installButton" type="button">Install Merge AI</button>
         <a class="open-app" href="https://mergeai.streamlit.app/" target="_top" rel="noopener">Open full app ↗</a>
       </div>
     </header>
@@ -55,29 +69,62 @@
         allowfullscreen
         referrerpolicy="strict-origin-when-cross-origin"></iframe>
       <div class="offline" id="offlineNotice">The app shell is available, but an internet connection is needed to use AI. Reconnect and reload Merge AI.</div>
+      <div class="install-guide" id="installGuide" hidden role="dialog" aria-modal="true" aria-labelledby="installGuideTitle">
+        <div class="guide-card">
+          <button class="guide-close" id="closeGuide" type="button" aria-label="Close installation instructions">×</button>
+          <div class="guide-mark">M</div>
+          <h2 id="installGuideTitle">Install Merge AI</h2>
+          <p id="installGuideText">Add Merge AI to your phone's home screen for an app-style shortcut.</p>
+          <div class="guide-instructions">
+            <p><strong>iPhone:</strong> Open this page in Safari, tap <strong>Share</strong>, then choose <strong>Add to Home Screen</strong> and tap <strong>Add</strong>.</p>
+            <p><strong>Android:</strong> Use Chrome and tap <strong>Install app</strong> when the install prompt appears. If it doesn't, open the ⋮ menu and choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p>
+          </div>
+          <p class="guide-foot">The app needs an internet connection for AI responses.</p>
+        </div>
+      </div>
     </section>
   </main>
   <script>
     (function () {
       const notice = document.getElementById('offlineNotice');
       const installButton = document.getElementById('installButton');
+      const installGuide = document.getElementById('installGuide');
+      const closeGuide = document.getElementById('closeGuide');
       function updateConnection() { notice.classList.toggle('show', !navigator.onLine); }
+      function isInstalled() {
+        return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      }
       window.addEventListener('online', updateConnection);
       window.addEventListener('offline', updateConnection);
       updateConnection();
 
       let installPrompt = null;
+      if (isInstalled()) {
+        installButton.textContent = 'App installed ✓';
+        installButton.disabled = true;
+      }
       window.addEventListener('beforeinstallprompt', (event) => {
         event.preventDefault();
         installPrompt = event;
-        installButton.style.display = 'inline-flex';
       });
       installButton.addEventListener('click', async () => {
-        if (!installPrompt) return;
-        installPrompt.prompt();
-        await installPrompt.userChoice;
-        installPrompt = null;
-        installButton.style.display = 'none';
+        if (isInstalled()) return;
+        if (installPrompt) {
+          installPrompt.prompt();
+          const choice = await installPrompt.userChoice;
+          installPrompt = null;
+          if (choice && choice.outcome === 'accepted') {
+            installButton.textContent = 'Installing…';
+          }
+        }
+        installGuide.hidden = false;
+      });
+      closeGuide.addEventListener('click', () => { installGuide.hidden = true; });
+      installGuide.addEventListener('click', (event) => {
+        if (event.target === installGuide) installGuide.hidden = true;
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') installGuide.hidden = true;
       });
 
       if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
