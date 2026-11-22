@@ -1636,6 +1636,309 @@ html, body, .stApp,
     color: #1B201E !important;
 }
 
+
+/* ===== Merge AI premium violet refresh ===== */
+:root {
+    color-scheme: light !important;
+    --ma-violet: #7546E8;
+    --ma-violet-dark: #6035D1;
+    --ma-violet-soft: #F1EBFF;
+    --ma-ink: #211A30;
+    --ma-muted: #777085;
+    --ma-line: #EAE4F4;
+}
+html, body, .stApp,
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+[data-testid="stHeader"],
+[data-testid="stBottomBlockContainer"] {
+    color-scheme: light !important;
+    background: #FBFAFE !important;
+    color: var(--ma-ink) !important;
+}
+[data-testid="stHeader"] {
+    background: rgba(251,250,254,.92) !important;
+}
+.block-container {
+    max-width: 980px !important;
+    padding-top: 1.35rem !important;
+    padding-bottom: 8rem !important;
+}
+[data-testid="stSidebar"],
+[data-testid="stSidebarContent"] {
+    background: #F6F3FB !important;
+    border-right: 1px solid #E9E2F4 !important;
+}
+[data-testid="stSidebar"] .stMarkdown,
+[data-testid="stSidebar"] .stMarkdown p,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] span {
+    color: #342B45 !important;
+}
+[data-testid="stSidebar"] .stButton > button {
+    min-height: 39px !important;
+    border: 1px solid transparent !important;
+    border-radius: 12px !important;
+    background: transparent !important;
+    color: #403650 !important;
+    font-weight: 500 !important;
+    transition: background .18s ease, border-color .18s ease, transform .18s ease !important;
+}
+[data-testid="stSidebar"] .stButton > button:hover {
+    background: #EEE8FA !important;
+    border-color: #E3D8F7 !important;
+    color: #5D35C7 !important;
+}
+.m-brand {
+    gap: 12px !important;
+    margin: 9px 0 25px !important;
+}
+.m-logo, .m-welcome .m-logo {
+    background: linear-gradient(135deg, #8C5BFA 0%, #6135D4 100%) !important;
+    color: #FFFFFF !important;
+    border: 1px solid rgba(255,255,255,.35) !important;
+    border-radius: 17px !important;
+    box-shadow: 0 8px 20px rgba(111,67,214,.24) !important;
+}
+.m-name {
+    color: #251B38 !important;
+    font-size: 21px !important;
+    font-weight: 780 !important;
+    letter-spacing: -.55px !important;
+}
+.m-top {
+    align-items: center !important;
+    padding: 5px 2px 17px !important;
+    margin: 3px 0 20px !important;
+    border-bottom: 1px solid #EEE9F5 !important;
+}
+.m-title {
+    color: #251B38 !important;
+    font-size: 20px !important;
+    font-weight: 760 !important;
+    letter-spacing: -.45px !important;
+}
+.m-model {
+    color: #786B8D !important;
+    background: #F1EBFB !important;
+    border: 1px solid #E7DDF6 !important;
+    border-radius: 999px !important;
+    padding: 6px 11px !important;
+    font-size: 11px !important;
+    font-weight: 650 !important;
+}
+.m-welcome {
+    position: relative !important;
+    overflow: hidden !important;
+    min-height: 390px !important;
+    margin: 24px auto 30px !important;
+    padding: 48px 24px 43px !important;
+    gap: 16px !important;
+    border: 1px solid #EAE2F6 !important;
+    border-radius: 30px !important;
+    background:
+        radial-gradient(ellipse at 50% 5%, rgba(177,143,255,.22), transparent 48%),
+        radial-gradient(ellipse at 50% 100%, rgba(219,204,255,.22), transparent 54%),
+        linear-gradient(145deg, #FFFFFF 0%, #FCFAFF 55%, #F8F4FF 100%) !important;
+    box-shadow: 0 18px 50px rgba(85,54,142,.08) !important;
+}
+.m-welcome > * {
+    position: relative !important;
+    z-index: 1 !important;
+}
+.m-welcome-eyebrow {
+    color: #7750C8 !important;
+    font-size: 10px !important;
+    font-weight: 800 !important;
+    letter-spacing: 1.8px !important;
+    text-transform: uppercase !important;
+}
+.m-welcome .m-logo {
+    width: 58px !important;
+    height: 58px !important;
+    font-size: 29px !important;
+    border-radius: 19px !important;
+}
+.m-welcome-title {
+    max-width: 760px !important;
+    color: #21172F !important;
+    font-size: clamp(30px, 4.2vw, 43px) !important;
+    font-weight: 780 !important;
+    letter-spacing: -1.7px !important;
+    line-height: 1.12 !important;
+}
+.m-welcome-title span {
+    background: linear-gradient(100deg, #8755F2 0%, #6136D4 55%, #A06BF4 100%) !important;
+    -webkit-background-clip: text !important;
+    background-clip: text !important;
+    color: transparent !important;
+}
+.m-welcome-subtitle {
+    max-width: 540px !important;
+    color: #776D86 !important;
+    font-size: 14px !important;
+    line-height: 1.65 !important;
+}
+.m-quick-pills {
+    display: flex !important;
+    justify-content: center !important;
+    flex-wrap: wrap !important;
+    gap: 9px !important;
+    margin-top: 7px !important;
+}
+.m-quick-pills span {
+    display: inline-flex !important;
+    align-items: center !important;
+    padding: 8px 12px !important;
+    color: #67469C !important;
+    background: rgba(244,239,253,.9) !important;
+    border: 1px solid #E9DFF8 !important;
+    border-radius: 999px !important;
+    font-size: 11px !important;
+    font-weight: 650 !important;
+}
+.m-user-text {
+    color: #302440 !important;
+    background: linear-gradient(135deg, #F1EBFF 0%, #F8F4FF 100%) !important;
+    border: 1px solid #E8DDFB !important;
+    border-radius: 20px 20px 6px 20px !important;
+    padding: 12px 16px !important;
+    box-shadow: 0 4px 14px rgba(92,58,151,.05) !important;
+    line-height: 1.6 !important;
+}
+.m-assistant {
+    color: #7446D7 !important;
+    font-size: 12px !important;
+    font-weight: 750 !important;
+    letter-spacing: .15px !important;
+}
+[data-testid="stMain"] .stMarkdownContainer,
+[data-testid="stMain"] .stMarkdownContainer p,
+[data-testid="stMain"] .stMarkdownContainer li,
+[data-testid="stMain"] label,
+[data-testid="stMain"] h1,
+[data-testid="stMain"] h2,
+[data-testid="stMain"] h3,
+[data-testid="stMain"] h4 {
+    color: #2C2438 !important;
+}
+.st-key-ma_chat_composer {
+    background: rgba(255,255,255,.96) !important;
+    border: 1px solid #E7DDF7 !important;
+    border-radius: 27px !important;
+    box-shadow: 0 9px 34px rgba(81,48,143,.13), 0 2px 7px rgba(35,23,55,.04) !important;
+    backdrop-filter: blur(18px) !important;
+}
+.st-key-ma_chat_composer [data-testid="stTextInput"] input {
+    color: #2B2239 !important;
+    -webkit-text-fill-color: #2B2239 !important;
+    background: transparent !important;
+    border: 0 !important;
+    font-size: 15px !important;
+}
+.st-key-ma_chat_composer [data-testid="stTextInput"] input::placeholder {
+    color: #9388A3 !important;
+    -webkit-text-fill-color: #9388A3 !important;
+    opacity: 1 !important;
+}
+.st-key-ma_chat_send_button button,
+.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button {
+    color: #FFFFFF !important;
+    background: linear-gradient(135deg, #8A58F5 0%, #6638D8 100%) !important;
+    border: 1px solid #7040DF !important;
+    box-shadow: 0 5px 13px rgba(112,64,223,.23) !important;
+}
+.st-key-ma_chat_send_button button:hover,
+.st-key-ma_chat_composer [data-testid="stFormSubmitButton"] button:hover {
+    background: linear-gradient(135deg, #7845E5 0%, #592FC8 100%) !important;
+    border-color: #6337D4 !important;
+}
+.st-key-ma_chat_voice_button button {
+    color: #7041D4 !important;
+    background: #F2ECFF !important;
+    border: 1px solid #E6D9FC !important;
+}
+.st-key-ma_chat_attach_button button,
+.st-key-ma_chat_think_button button {
+    color: #66577B !important;
+    background: #F7F4FB !important;
+    border: 1px solid #EAE4F2 !important;
+}
+.st-key-ma_chat_attach_button button:hover,
+.st-key-ma_chat_think_button button:hover {
+    color: #6236D0 !important;
+    background: #F0E9FC !important;
+    border-color: #DFD2F5 !important;
+}
+.st-key-ma_chat_attach_panel {
+    background: rgba(255,255,255,.98) !important;
+    border: 1px solid #E8DFF4 !important;
+    border-radius: 20px !important;
+    box-shadow: 0 14px 40px rgba(65,42,102,.14) !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stButton"] button {
+    color: #332944 !important;
+    background: #FFFFFF !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stButton"] button:hover {
+    color: #6339C9 !important;
+    background: #F5F0FC !important;
+}
+.st-key-ma_chat_attach_panel [data-testid="stFileUploaderDropzone"] {
+    background: #FBF9FE !important;
+    border-color: #DCCEF2 !important;
+}
+[data-testid="stExpander"] {
+    background: #FFFFFF !important;
+    border: 1px solid #EAE4F2 !important;
+    border-radius: 14px !important;
+}
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary span {
+    color: #3B304B !important;
+}
+.stButton > button, .stDownloadButton > button {
+    border-radius: 12px !important;
+    transition: all .18s ease !important;
+}
+.m-footer {
+    color: #988FA4 !important;
+    font-size: 11px !important;
+    padding: 18px 0 4px !important;
+}
+@media (max-width: 768px) {
+    .block-container {
+        padding: 12px 12px calc(118px + env(safe-area-inset-bottom, 0px)) !important;
+    }
+    .m-top {
+        margin: 2px 0 13px !important;
+        padding: 4px 0 12px !important;
+    }
+    .m-title { font-size: 17px !important; }
+    .m-model { font-size: 9px !important; padding: 5px 8px !important; }
+    .m-welcome {
+        min-height: 350px !important;
+        margin: 14px auto 22px !important;
+        padding: 35px 14px 30px !important;
+        border-radius: 24px !important;
+        gap: 14px !important;
+    }
+    .m-welcome-title {
+        font-size: clamp(27px, 8vw, 36px) !important;
+        letter-spacing: -1px !important;
+    }
+    .m-welcome-subtitle { font-size: 13px !important; }
+    .m-quick-pills { gap: 6px !important; }
+    .m-quick-pills span { font-size: 10px !important; padding: 7px 9px !important; }
+    .st-key-ma_chat_composer {
+        left: 8px !important;
+        right: 8px !important;
+        bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
+        background: rgba(255,255,255,.98) !important;
+    }
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -2538,13 +2841,19 @@ if not chat["messages"]:
 
     st.markdown(
         '<div class="m-welcome">'
-        '<div class="m-logo" style="width:55px;'
-        'height:55px;font-size:28px">M</div>'
+        '<div class="m-welcome-eyebrow">MERGE AI · MULTI-MODEL INTELLIGENCE</div>'
+        '<div class="m-logo" style="width:58px;'
+        'height:58px;font-size:29px">M</div>'
         '<div class="m-welcome-title">'
-        'What can I help with?'
+        'One prompt. Multiple minds.<br><span>One stronger answer.</span>'
         '</div>'
-        '<div style="color:#89958d;font-size:13px">'
-        'Ask a question or start a voice conversation.'
+        '<div class="m-welcome-subtitle">'
+        'Ask once. Merge perspectives from Gemini, Groq and OpenRouter.'
+        '</div>'
+        '<div class="m-quick-pills">'
+        '<span>✦ Research &amp; learn</span>'
+        '<span>⌘ Build &amp; code</span>'
+        '<span>✧ Create &amp; explore</span>'
         '</div></div>',
         unsafe_allow_html=True,
     )
