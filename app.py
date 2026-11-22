@@ -2068,6 +2068,12 @@ html, body, .stApp,
     }
 }
 
+
+/* ===== Microphone button alignment nudge ===== */
+.st-key-ma_chat_composer .st-key-ma_chat_voice_button {
+    transform: translateX(8px) !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
