@@ -2311,6 +2311,13 @@ with st.sidebar:
         st.session_state.ma_gemini_token_error = ""
         st.rerun()
 
+    st.link_button(
+        "📱 Install Merge AI",
+        "https://khalid521164.github.io/Merge-Ai/",
+        help="Open Merge AI's phone installation page.",
+        use_container_width=True,
+    )
+
     # ================= SEARCH =================
 
     if st.button("🔎 Search chats"):
