@@ -2071,9 +2071,13 @@ html, body, .stApp,
 
 /* ===== Microphone button alignment nudge ===== */
 .st-key-ma_chat_composer .st-key-ma_chat_voice_button {
-    transform: translateX(14px) !important;
+    transform: translateX(16px) !important;
 }
 
+
+.st-key-ma_chat_composer .st-key-ma_chat_attach_button {
+    transform: translateX(16px) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
