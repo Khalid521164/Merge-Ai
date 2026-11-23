@@ -1,15 +1,20 @@
 
 """Merge AI 2.0 - Chat UI, cloud history, memory and voice."""
 
+import hashlib
 import html
+import hmac
 import json
 import os
 from pathlib import Path
+import secrets
 import time
 import uuid
+from urllib.parse import urlencode
 
 import streamlit as st
 from PIL import Image
+import qrcode
 
 # Resolve the favicon relative to this file, not the process working directory.
 _MERGE_AI_ICON_PATH = Path(__file__).resolve().parent / "merge_ai_icon.png"
@@ -2224,6 +2229,39 @@ def team_for_chat(chat):
     return [roster[agent_id] for agent_id in wanted if agent_id in roster]
 
 
+def control_context_for_chat(chat):
+    """Return the hidden Jarvis control-session metadata for a conversation."""
+    if not isinstance(chat, dict):
+        return None
+    return next(
+        (
+            message for message in chat.get("messages", [])
+            if message.get("role") == "control_context"
+        ),
+        None,
+    )
+
+
+def start_control_chat(mode="pc", pair_token=""):
+    """Create a dedicated Jarvis conversation, optionally paired to a phone."""
+    chat = make_chat()
+    chat["title"] = "Jarvis · " + ("Phone session" if mode == "phone" else "PC control")
+    metadata = {
+        "role": "control_context",
+        "mode": mode,
+        "created_at": time.time(),
+    }
+    if mode == "phone":
+        metadata["pair_token_hash"] = hashlib.sha256(
+            str(pair_token).encode("utf-8")
+        ).hexdigest()
+        metadata["pair_expires_at"] = time.time() + 600
+    chat["messages"].append(metadata)
+    st.session_state.ma_chats.insert(0, chat)
+    st.session_state.ma_active = chat["id"]
+    return chat
+
+
 def start_agent_chat(agent, new_chat=False):
     """Open the latest thread for an agent, or create a separate new thread."""
     agent_id = str(agent.get("id", ""))
@@ -2304,6 +2342,15 @@ defaults = {
     "ma_agents_screen": False,
     "ma_agents_create": False,
     "ma_agent_team_builder": ["analyst", "coder"],
+    "ma_control_screen": False,
+    "ma_control_stage": "welcome",
+    "ma_control_target": "",
+    "ma_control_pair_token": "",
+    "ma_control_pair_chat_id": "",
+    "ma_control_pair_url": "",
+    "ma_control_pair_expires": 0,
+    "ma_control_pair_error": "",
+    "ma_control_phone_mode": False,
 }
 
 for key, value in defaults.items():
@@ -2369,6 +2416,11 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_agents_error = ""
     st.session_state.ma_agents_screen = False
     st.session_state.ma_agents_create = False
+    st.session_state.ma_control_screen = False
+    st.session_state.ma_control_target = ""
+    st.session_state.ma_control_pair_token = ""
+    st.session_state.ma_control_pair_chat_id = ""
+    st.session_state.ma_control_pair_url = ""
 
 
 def load_cloud():
@@ -2430,6 +2482,66 @@ def load_cloud():
 
 
 load_cloud()
+
+
+def activate_phone_control_link():
+    """Validate the one-time QR token against a chat owned by this Google account."""
+    try:
+        chat_id = str(st.query_params.get("control_chat", "") or "").strip()
+        raw_token = str(st.query_params.get("control_token", "") or "").strip()
+    except Exception:
+        chat_id, raw_token = "", ""
+
+    if not chat_id or not raw_token:
+        return
+    if not user or not db:
+        st.session_state.ma_control_screen = True
+        st.session_state.ma_control_stage = "phone"
+        st.session_state.ma_control_target = "phone"
+        st.session_state.ma_control_pair_error = (
+            "Sign in with the same Google account used on the computer to join this Jarvis session."
+        )
+        return
+
+    matching_chat = next(
+        (item for item in st.session_state.ma_chats if str(item.get("id")) == chat_id),
+        None,
+    )
+    metadata = control_context_for_chat(matching_chat) if matching_chat else None
+    expected_hash = str((metadata or {}).get("pair_token_hash") or "")
+    actual_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+    expires_at = float((metadata or {}).get("pair_expires_at") or 0)
+
+    if (
+        not metadata
+        or metadata.get("mode") != "phone"
+        or not expected_hash
+        or not hmac.compare_digest(expected_hash, actual_hash)
+        or time.time() > expires_at
+    ):
+        st.session_state.ma_control_screen = True
+        st.session_state.ma_control_stage = "phone"
+        st.session_state.ma_control_target = "phone"
+        st.session_state.ma_control_pair_error = (
+            "This QR code is invalid or has expired. Create a new code from the computer."
+        )
+        return
+
+    st.session_state.ma_active = matching_chat["id"]
+    st.session_state.ma_control_phone_mode = True
+    st.session_state.ma_control_screen = False
+    st.session_state.ma_control_pair_error = ""
+    st.session_state.ma_voice_screen = True
+    st.session_state.ma_gemini_token = ""
+    st.session_state.ma_gemini_token_error = ""
+    try:
+        del st.query_params["control_chat"]
+        del st.query_params["control_token"]
+    except Exception:
+        pass
+
+
+activate_phone_control_link()
 
 if user and not st.session_state.ma_loaded:
     st.session_state.ma_loaded = True
@@ -2530,6 +2642,22 @@ with st.sidebar:
         help="Open Merge AI's phone installation page.",
         use_container_width=True,
     )
+
+    # ================= CONTROL MODE =================
+
+    st.divider()
+    st.caption("JARVIS")
+    if st.button(
+        "🎛️  Control mode",
+        key="ma_open_control_mode",
+        use_container_width=True,
+    ):
+        st.session_state.ma_control_screen = True
+        st.session_state.ma_control_stage = "welcome"
+        st.session_state.ma_control_target = ""
+        st.session_state.ma_agents_screen = False
+        st.session_state.ma_voice_screen = False
+        st.rerun()
 
     # ================= AGENTS =================
 
@@ -2894,6 +3022,12 @@ if st.session_state.ma_mobile_sidebar_open and not st.session_state.ma_voice_scr
             st.session_state.ma_gemini_token_error = ""
             st.session_state.ma_mobile_sidebar_open = False
             st.rerun()
+        if st.button("🎛️   Control mode", key="ma_mobile_control_mode"):
+            st.session_state.ma_control_screen = True
+            st.session_state.ma_control_stage = "welcome"
+            st.session_state.ma_control_target = ""
+            st.session_state.ma_mobile_sidebar_open = False
+            st.rerun()
         if st.button("🤖   Explore agents", key="ma_mobile_agents"):
             st.session_state.ma_agents_screen = True
             st.session_state.ma_agents_create = False
@@ -2949,6 +3083,130 @@ if st.session_state.ma_mobile_sidebar_open and not st.session_state.ma_voice_scr
                 st.session_state.ma_agents_screen = False
                 st.session_state.ma_mobile_sidebar_open = False
                 st.rerun()
+
+
+# ===================== JARVIS CONTROL MODE =====================
+
+if st.session_state.ma_control_screen and not st.session_state.ma_voice_screen:
+    st.markdown(
+        '<div class="m-welcome" style="min-height:220px;padding:30px 22px">'
+        '<div class="m-welcome-eyebrow">MERGE AI · JARVIS</div>'
+        '<div class="m-logo" style="width:58px;height:58px;font-size:28px">◉</div>'
+        '<div class="m-welcome-title">Control <span>Mode.</span></div>'
+        '<div class="m-welcome-subtitle">Your voice-first command center for Merge AI. Start a session, then choose where you want to talk to Jarvis.</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    if st.button("← Back to chat", key="ma_control_back"):
+        st.session_state.ma_control_screen = False
+        st.session_state.ma_control_stage = "welcome"
+        st.session_state.ma_control_target = ""
+        st.rerun()
+
+    if st.session_state.ma_control_stage == "welcome":
+        with st.container(border=True):
+            st.markdown("### Ready to start?")
+            st.write("Jarvis can talk with you through live voice on your phone or chat with you from this computer.")
+            st.caption("Control sessions use your signed-in Merge AI account. You can end a session at any time.")
+            if st.button("▶  Start Control", key="ma_control_start", type="primary", use_container_width=True):
+                st.session_state.ma_control_stage = "choose"
+                st.session_state.ma_control_pair_error = ""
+                st.rerun()
+
+    if st.session_state.ma_control_stage == "choose":
+        st.markdown("### Where would you like to use Jarvis?")
+        phone_col, pc_col = st.columns(2)
+        with phone_col:
+            with st.container(border=True):
+                st.markdown("### 📱 Control by phone")
+                st.write("Create a temporary QR code. Scan it with your phone to open the same Jarvis conversation and start live voice.")
+                if st.button("Choose phone", key="ma_control_choose_phone", type="primary", use_container_width=True):
+                    if not user or not db:
+                        st.session_state.ma_control_target = "phone"
+                        st.session_state.ma_control_stage = "phone"
+                        st.session_state.ma_control_pair_error = (
+                            "Sign in with Google and connect Supabase on this computer before creating a phone pairing code."
+                        )
+                    else:
+                        pair_token = secrets.token_urlsafe(32)
+                        phone_chat = start_control_chat("phone", pair_token=pair_token)
+                        persist(phone_chat)
+                        pair_query = urlencode({
+                            "control_chat": phone_chat["id"],
+                            "control_token": pair_token,
+                        })
+                        st.session_state.ma_control_pair_token = pair_token
+                        st.session_state.ma_control_pair_chat_id = phone_chat["id"]
+                        st.session_state.ma_control_pair_url = (
+                            "https://mergeai.streamlit.app/?" + pair_query
+                        )
+                        st.session_state.ma_control_pair_expires = time.time() + 600
+                        st.session_state.ma_control_target = "phone"
+                        st.session_state.ma_control_stage = "phone"
+                        st.session_state.ma_control_pair_error = ""
+                    st.rerun()
+        with pc_col:
+            with st.container(border=True):
+                st.markdown("### 🖥️ Control on this PC")
+                st.write("Open a dedicated Jarvis command conversation in Merge AI.")
+                if st.button("Choose this PC", key="ma_control_choose_pc", type="primary", use_container_width=True):
+                    pc_chat = start_control_chat("pc")
+                    persist(pc_chat)
+                    st.session_state.ma_control_screen = False
+                    st.session_state.ma_control_stage = "welcome"
+                    st.session_state.ma_control_target = "pc"
+                    st.rerun()
+
+    if st.session_state.ma_control_stage == "phone":
+        st.markdown("### 📱 Phone pairing")
+        if st.session_state.ma_control_pair_error:
+            st.warning(st.session_state.ma_control_pair_error)
+            if not user and st.button("Sign in with Google", key="ma_control_phone_login"):
+                login_with_google()
+        elif st.session_state.ma_control_pair_url and st.session_state.ma_control_pair_chat_id:
+            remaining = max(
+                0,
+                int(st.session_state.ma_control_pair_expires - time.time()),
+            )
+            if remaining <= 0:
+                st.warning("This pairing QR code has expired.")
+            else:
+                qr_image = qrcode.make(st.session_state.ma_control_pair_url)
+                qr_col, details_col = st.columns([1, 2])
+                with qr_col:
+                    st.image(qr_image, width=230, caption="Scan with your phone")
+                with details_col:
+                    st.markdown("#### Scan to connect")
+                    st.write("Open your phone camera and scan this temporary code. Sign in with the same Google account when prompted.")
+                    st.metric("Code expires in", f"{remaining // 60}:{remaining % 60:02d}")
+                    st.caption("The pairing code is random, temporary and stored as a hash in your chat metadata.")
+                st.info(
+                    "Your phone will join this shared Jarvis conversation and can talk to Jarvis live. "
+                    "This first release syncs the conversation; Windows mouse, keyboard and other-app control still needs the separate desktop companion."
+                )
+            if st.button("Generate a new QR code", key="ma_control_rotate_qr"):
+                pair_token = secrets.token_urlsafe(32)
+                phone_chat = next(
+                    (item for item in st.session_state.ma_chats if item.get("id") == st.session_state.ma_control_pair_chat_id),
+                    None,
+                )
+                if phone_chat:
+                    metadata = control_context_for_chat(phone_chat)
+                    metadata["pair_token_hash"] = hashlib.sha256(pair_token.encode("utf-8")).hexdigest()
+                    metadata["pair_expires_at"] = time.time() + 600
+                    persist(phone_chat)
+                    pair_query = urlencode({
+                        "control_chat": phone_chat["id"],
+                        "control_token": pair_token,
+                    })
+                    st.session_state.ma_control_pair_token = pair_token
+                    st.session_state.ma_control_pair_url = "https://mergeai.streamlit.app/?" + pair_query
+                    st.session_state.ma_control_pair_expires = time.time() + 600
+                    st.rerun()
+        st.caption("Keep this QR code private. Anyone who scans it before it expires and signs in to your Google account can join this voice session.")
+
+    st.stop()
 
 
 # ===================== AGENTS HUB =====================
@@ -3382,6 +3640,18 @@ def build_context(chat, question):
     ]
 
     active_agent = agent_for_chat(chat)
+    control_context = control_context_for_chat(chat)
+    if control_context:
+        lines.extend([
+            "\\nJARVIS CONTROL MODE:",
+            "You are Jarvis, the user's command assistant inside Merge AI.",
+            "Use a calm, capable, concise voice. Understand natural-language requests and help plan tasks.",
+            "You can use only the AI, conversation and agent features actually available inside this app.",
+            "You do not currently have a desktop-control bridge, mouse, keyboard, operating-system or external-app execution tool.",
+            "Never claim that you clicked, opened, typed into, changed or controlled anything on the computer or another device.",
+            "When a request needs unavailable PC access, explain the limitation and give a safe next step.",
+            "For tasks that benefit from specialists, recommend or use the Agent Team workflow where available.",
+        ])
     if active_agent:
         lines.extend([
             "\nACTIVE SPECIALIST AGENT:",
@@ -3414,7 +3684,7 @@ def build_context(chat, question):
                 "role",
                 "user"
             )
-            if role in ("agent_context", "team_context"):
+            if role in ("agent_context", "team_context", "control_context"):
                 continue
 
             content = str(
@@ -3813,11 +4083,32 @@ st.markdown(
 chat = active_chat()
 active_agent = agent_for_chat(chat)
 active_team = team_for_chat(chat)
+active_control = control_context_for_chat(chat)
 visible_chat_messages = [
     message for message in chat["messages"]
     if message.get("role") not in ("agent_context", "team_context")
 ]
-if active_team:
+if active_control:
+    control_label = "phone voice session" if active_control.get("mode") == "phone" else "this computer"
+    st.caption("◉ Jarvis Control Mode · " + control_label)
+    if active_control.get("mode") == "pc":
+        st.info(
+            "Jarvis can interpret your commands and coordinate Merge AI agents in this chat. "
+            "Direct Windows mouse, keyboard and other-app actions are not enabled until the desktop companion is installed."
+        )
+    elif db and st.button("↻ Refresh shared phone conversation", key="ma_refresh_control_chat"):
+        try:
+            refreshed = next(
+                (row for row in db.list_chats() if row.get("id") == chat.get("id")),
+                None,
+            )
+            if refreshed:
+                chat["messages"] = refreshed.get("messages", chat["messages"])
+                chat["title"] = refreshed.get("title", chat["title"])
+                st.rerun()
+        except CloudHistoryError as exc:
+            st.warning("Could not refresh the shared session: " + str(exc))
+elif active_team:
     st.caption(
         "🤝 Team workflow: "
         + " → ".join(agent["name"] for agent in active_team)
@@ -3901,7 +4192,7 @@ elif not visible_chat_messages:
 
 for i, msg in enumerate(chat["messages"]):
 
-    if msg.get("role") in ("agent_context", "team_context"):
+    if msg.get("role") in ("agent_context", "team_context", "control_context"):
         continue
 
     content = str(
@@ -4046,12 +4337,16 @@ with st.container(key="ma_chat_composer"):
             input_col, send_col = st.columns([11, 0.85], vertical_alignment="center")
             with input_col:
                 agent_placeholder = (
-                    "Message your agent team…"
-                    if active_team
+                    "Give Jarvis a command…"
+                    if active_control
                     else (
-                        "Message " + active_agent["name"] + "…"
-                        if active_agent
-                        else "Ask Merge AI anything…"
+                        "Message your agent team…"
+                        if active_team
+                        else (
+                            "Message " + active_agent["name"] + "…"
+                            if active_agent
+                            else "Ask Merge AI anything…"
+                        )
                     )
                 )
                 typed_question = st.text_input(
@@ -4369,6 +4664,8 @@ if question and question.strip():
     # Automatic chat title.
     if chat["title"] == "New chat":
         chat["title"] = question[:60]
+    elif control_context_for_chat(chat) and chat["title"].startswith("Jarvis ·"):
+        chat["title"] = "Jarvis · " + question[:48]
     elif team_for_chat(chat) and chat["title"].startswith("Team: "):
         chat["title"] = (
             "Team: "
