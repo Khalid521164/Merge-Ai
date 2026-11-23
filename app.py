@@ -2496,6 +2496,7 @@ defaults = {
     "ma_bridge_pair_file": "",
     "ma_bridge_pair_filename": "",
     "ma_bridge_pair_error": "",
+    "ma_voice_pending_proposal": None,
 }
 
 for key, value in defaults.items():
@@ -4188,6 +4189,20 @@ if st.session_state.ma_voice_screen:
                     voice_chat_record["title"] = spoken_user[:60]
                 if spoken_user or spoken_assistant:
                     persist(voice_chat_record)
+                    voice_control = control_context_for_chat(voice_chat_record)
+                    if spoken_user and voice_control and voice_control.get("desktop_session_id") and db:
+                        try:
+                            live_device = db.get_control_device(voice_control["desktop_session_id"])
+                            if live_device and live_device.get("status") == "active":
+                                voice_proposal = plan_desktop_action(spoken_user)
+                                if voice_proposal:
+                                    st.session_state.ma_voice_pending_proposal = {
+                                        "chat_id": voice_chat_record["id"],
+                                        "proposal_id": str(uuid.uuid4()),
+                                        "proposal": voice_proposal,
+                                    }
+                        except Exception:
+                            st.session_state.ma_voice_pending_proposal = None
                     if user and db and not st.session_state.ma_db_error:
                         previous = [m.get("content", "") for m in st.session_state.ma_memories]
                         previous += st.session_state.ma_memory_suggestions
@@ -4211,6 +4226,32 @@ if st.session_state.ma_voice_screen:
                                     break
                             elif len(st.session_state.ma_memory_suggestions) < 6:
                                 st.session_state.ma_memory_suggestions.append(suggestion)
+        if st.session_state.ma_voice_pending_proposal:
+            pending_voice = st.session_state.ma_voice_pending_proposal
+            voice_chat = next((item for item in st.session_state.ma_chats if item.get("id") == pending_voice.get("chat_id")), None)
+            st.warning(
+                "Jarvis prepared a computer action: "
+                + str(pending_voice["proposal"]["action"]).replace("_", " ").title()
+                + " · " + json.dumps(pending_voice["proposal"]["arguments"], ensure_ascii=False)
+            )
+            voice_yes, voice_no = st.columns(2)
+            with voice_yes:
+                if st.button("Approve and run on PC", key="ma_voice_approve_action", type="primary"):
+                    try:
+                        voice_context = control_context_for_chat(voice_chat)
+                        db.create_control_command({
+                            "session_id": voice_context["desktop_session_id"],
+                            "action": pending_voice["proposal"]["action"],
+                            "arguments": pending_voice["proposal"]["arguments"],
+                        })
+                        st.session_state.ma_voice_pending_proposal = None
+                        st.success("Approved. The Windows companion will run this action.")
+                    except Exception as exc:
+                        st.error("Could not queue the approved action: " + str(exc))
+            with voice_no:
+                if st.button("Cancel action", key="ma_voice_cancel_action"):
+                    st.session_state.ma_voice_pending_proposal = None
+                    st.info("Action cancelled.")
     else:
         st.error(st.session_state.ma_gemini_token_error or "Could not start Gemini Live.")
         if st.button("Try again", key="retry_gemini_live"):
@@ -4295,7 +4336,21 @@ if active_control:
                         result_text = str(bridge_command.get("result_text") or "")
                         if result_text.startswith("SCREENSHOT_JPEG_BASE64:"):
                             try:
-                                st.image(base64.b64decode(result_text.split(":", 1)[1], validate=True), caption="Desktop screenshot")
+                                screenshot_data = base64.b64decode(result_text.split(":", 1)[1], validate=True)
+                                st.image(screenshot_data, caption="Desktop screenshot")
+                                if st.button("Ask Jarvis to analyze this screen", key="ma_analyze_desktop_screen_" + str(bridge_command.get("command_id", ""))):
+                                    screen_answer = analyze_images(
+                                        "Describe the visible desktop screen. Identify the active application, visible text and relevant controls. Do not click or change anything. Answer the user's latest Jarvis request if it can be inferred from the recent chat.",
+                                        [{"name": "desktop-screenshot.jpg", "mime_type": "image/jpeg", "data": screenshot_data}],
+                                        "",
+                                    )
+                                    chat["messages"].append({
+                                        "role": "assistant",
+                                        "content": screen_answer,
+                                        "sources": [],
+                                    })
+                                    persist(chat)
+                                    st.rerun()
                             except Exception:
                                 st.caption("Screenshot result could not be displayed.")
                         elif result_text:

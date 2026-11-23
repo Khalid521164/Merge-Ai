@@ -164,3 +164,38 @@ revoke all on function public.ma2_bridge_complete_command(uuid, text, uuid, text
 grant execute on function public.ma2_bridge_heartbeat(uuid, text) to anon, authenticated;
 grant execute on function public.ma2_bridge_claim_commands(uuid, text, integer) to anon, authenticated;
 grant execute on function public.ma2_bridge_complete_command(uuid, text, uuid, text, text) to anon, authenticated;
+
+
+-- Allow the visible Windows companion to revoke its own session immediately
+-- when the local STOP control is pressed.
+create or replace function public.ma2_bridge_stop(
+    p_session_id uuid,
+    p_token_hash text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+    update public.ma2_control_devices
+       set status = 'stopped'
+     where session_id = p_session_id
+       and token_hash = p_token_hash
+       and status in ('pending', 'active');
+
+    if not found then
+        return false;
+    end if;
+
+    update public.ma2_control_commands
+       set status = 'cancelled'
+     where session_id = p_session_id
+       and status in ('approved', 'running');
+
+    return true;
+end;
+$$;
+
+revoke all on function public.ma2_bridge_stop(uuid, text) from public;
+grant execute on function public.ma2_bridge_stop(uuid, text) to anon, authenticated;

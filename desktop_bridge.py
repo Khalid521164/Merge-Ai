@@ -134,6 +134,12 @@ class BridgeClient:
         })
         return value if isinstance(value, list) else []
 
+    def stop_session(self):
+        return self.rpc("ma2_bridge_stop", {
+            "p_session_id": self.session_id,
+            "p_token_hash": self.secret_hash,
+        })
+
     def complete(self, command_id: str, status: str, result_text: str):
         return self.rpc("ma2_bridge_complete_command", {
             "p_session_id": self.session_id,
@@ -453,10 +459,18 @@ class DesktopBridgeWindow:
 
     def stop(self):
         self.stop_event.set()
+        if self.client:
+            threading.Thread(target=self._revoke_remote_session, daemon=True).start()
         self.status.config(text="● STOPPING", fg="#f3bd70")
         self.stop_button.config(state="disabled")
         self.load_button.config(state="normal")
         self.start_button.config(state="normal")
+
+    def _revoke_remote_session(self):
+        try:
+            self.client.stop_session()
+        except Exception:
+            pass
 
     def process_events(self):
         try:

@@ -7,6 +7,8 @@ on:
       - 'app.py'
       - 'cloud_history.py'
       - 'merge_ai.py'
+      - 'desktop_bridge.py'
+      - 'supabase_control_bridge.sql'
       - '.github/workflows/python-syntax.yml'
   workflow_dispatch:
 
