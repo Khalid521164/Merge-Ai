@@ -2531,6 +2531,7 @@ with st.sidebar:
             key="chat_" + c["id"],
         ):
             st.session_state.ma_active = c["id"]
+            st.session_state.ma_agents_screen = False
             st.rerun()
 
     # ================= MANAGE CHAT =================
@@ -2846,6 +2847,7 @@ if st.session_state.ma_mobile_sidebar_open and not st.session_state.ma_voice_scr
                 key="ma_mobile_chat_" + mobile_chat["id"],
             ):
                 st.session_state.ma_active = mobile_chat["id"]
+                st.session_state.ma_agents_screen = False
                 st.session_state.ma_mobile_sidebar_open = False
                 st.rerun()
 
@@ -2880,8 +2882,21 @@ if st.session_state.ma_agents_screen and not st.session_state.ma_voice_screen:
             "Open Supabase agents setup SQL",
             "https://github.com/Khalid521164/Merge-Ai/blob/main/supabase_agents.sql",
         )
+        if user and db and st.button("Retry agent sync", key="ma_retry_agent_sync"):
+            try:
+                st.session_state.ma_custom_agents = [
+                    {**agent, "_cloud_saved": True}
+                    for agent in db.list_agents()
+                ]
+                st.session_state.ma_agents_error = ""
+                st.rerun()
+            except CloudHistoryError as agent_exc:
+                st.session_state.ma_agents_error = str(agent_exc)
+                st.error("Agent sync is not ready yet: " + str(agent_exc))
     elif not user:
         st.caption("Custom agents can be created in this session. Sign in with Google and connect Supabase to sync them across devices.")
+    elif user and not db:
+        st.caption("Supabase is not connected for this account yet, so new custom agents will stay in this browser session.")
 
     if st.button(
         "＋  Create a new agent",
@@ -3183,8 +3198,15 @@ def ask_ai(chat, question, attachments=None):
     images = attachments.get("images") or []
     active_agent = agent_for_chat(chat)
 
-    # Photos are analyzed by Gemini's vision-capable model.
+    # Photos are analyzed by Gemini's vision-capable model. Pass the
+    # selected specialist role through the image-analysis question too.
     if images:
+        if active_agent:
+            question = (
+                "Act as " + active_agent["name"] + ". "
+                + active_agent.get("instructions", "")[:4000]
+                + "\n\nUser request: " + question
+            )
         return analyze_images(question, images, file_context), []
 
     # Preserve the app's direct project/memory shortcuts for ordinary text.
@@ -3365,6 +3387,11 @@ visible_chat_messages = [
     message for message in chat["messages"]
     if message.get("role") != "agent_context"
 ]
+if active_agent:
+    st.caption(
+        active_agent.get("avatar", "🤖") + "  "
+        + active_agent["name"] + " · Specialist agent"
+    )
 
 
 # ===================== WELCOME =====================
@@ -3390,7 +3417,7 @@ if not visible_chat_messages and active_agent:
             "✦  " + suggestion,
             key="ma_agent_suggestion_" + active_agent["id"] + "_" + str(suggestion_index),
         ):
-            st.session_state.ma_agent_prefill = suggestion
+            st.session_state.ma_composer_text = suggestion
             st.rerun()
 
 elif not visible_chat_messages:
@@ -3445,10 +3472,15 @@ for i, msg in enumerate(chat["messages"]):
 
     else:
 
+        assistant_label = (
+            active_agent.get("avatar", "🤖") + "  " + active_agent["name"]
+            if active_agent
+            else "✦ Merge AI"
+        )
         st.markdown(
             '<div class="m-assistant">'
-            '✦ Merge AI'
-            '</div>',
+            + html.escape(assistant_label)
+            + '</div>',
             unsafe_allow_html=True,
         )
 
