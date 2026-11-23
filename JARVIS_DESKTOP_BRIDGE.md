@@ -40,7 +40,7 @@ Pairing config expires after 10 minutes. The active desktop-control session expi
 ## Supported actions
 
 - Capture the active monitor (JPEG screenshot).
-- Open allowlisted apps: Notepad, Calculator, Paint, File Explorer, Chrome, and Edge.
+- Open allowlisted apps: Notepad, Calculator, Paint, File Explorer, Chrome, Edge, and Visual Studio Code.
 - Open ordinary HTTP/HTTPS web addresses.
 - Move and click at screen coordinates or common screen positions (center/corners).
 - Type up to 3,000 characters using the clipboard.
@@ -55,5 +55,5 @@ The bridge rejects arbitrary shell commands, arbitrary executable paths, arbitra
 - The bridge window stays visible and has an immediate stop button.
 - Do not approve commands that could expose passwords, financial details, private messages, or other sensitive information.
 - Screenshots are returned to the Merge AI session only after an approved screenshot command.
-- Do not share pairing JSON files; they contain a temporary credential.
+- Do not share pairing JSON files; they contain a temporary credential. Delete the downloaded JSON file after loading it into the companion. The companion removes its local saved pairing file when you press STOP or close the window.
 - The bridge does not run arbitrary scripts, PowerShell, CMD, shell commands, file deletion, or unattended background tasks.

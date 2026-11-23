@@ -1,0 +1,37 @@
+name: Build Windows Desktop Bridge
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop_bridge.py'
+      - 'desktop_requirements.txt'
+      - '.github/workflows/build-desktop-bridge.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install desktop bridge dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r desktop_requirements.txt
+      - name: Build Windows executable
+        run: pyinstaller --noconfirm --clean --onefile --windowed --name MergeAIDesktopBridge desktop_bridge.py
+      - name: Upload Windows executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: MergeAIDesktopBridge-Windows
+          path: dist/MergeAIDesktopBridge.exe
+          if-no-files-found: error
+          retention-days: 14

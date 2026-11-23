@@ -30,7 +30,7 @@ import requests
 
 
 APP_NAME = "Merge AI Desktop Bridge"
-ALLOWED_APPS = {"notepad", "calculator", "paint", "explorer", "chrome", "edge"}
+ALLOWED_APPS = {"notepad", "calculator", "paint", "explorer", "chrome", "edge", "vscode"}
 ALLOWED_KEYS = {
     "enter", "esc", "tab", "space", "backspace", "delete",
     "up", "down", "left", "right", "home", "end", "pageup", "pagedown",
@@ -183,7 +183,15 @@ def resolve_app(app_name: str) -> str:
     if name in fixed:
         return str(fixed[name])
     candidates = []
-    if name == "edge":
+    if name == "vscode":
+        candidates.extend([
+            Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData/Local")))
+            / "Programs/Microsoft VS Code/Code.exe",
+            Path(os.environ.get("ProgramFiles", r"C:\\Program Files"))
+            / "Microsoft VS Code/Code.exe",
+        ])
+        found = shutil.which("code")
+    elif name == "edge":
         candidates.extend([
             Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
             / "Microsoft/Edge/Application/msedge.exe",
@@ -461,6 +469,10 @@ class DesktopBridgeWindow:
         self.stop_event.set()
         if self.client:
             threading.Thread(target=self._revoke_remote_session, daemon=True).start()
+        try:
+            secure_config_path().unlink(missing_ok=True)
+        except OSError:
+            pass
         self.status.config(text="● STOPPING", fg="#f3bd70")
         self.stop_button.config(state="disabled")
         self.load_button.config(state="normal")
@@ -499,6 +511,12 @@ class DesktopBridgeWindow:
 
     def on_close(self):
         self.stop_event.set()
+        if self.client:
+            threading.Thread(target=self._revoke_remote_session, daemon=True).start()
+        try:
+            secure_config_path().unlink(missing_ok=True)
+        except OSError:
+            pass
         self.root.destroy()
 
 

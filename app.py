@@ -2329,7 +2329,7 @@ def plan_desktop_action(question):
         "Return only JSON with keys action and arguments. If no desktop action is clearly "
         "requested, return action='no_action' and arguments={}. Never infer destructive "
         "or sensitive intent. Allowed actions: screenshot {}; open_app {app} where app "
-        "is notepad, calculator, paint, explorer, chrome, edge; open_url {url} using "
+        "is notepad, calculator, paint, explorer, chrome, edge, vscode; open_url {url} using "
         "http or https; click {x,y} or {position}; move_mouse {x,y} or {position}; "
         "type_text {text} up to 3000 characters; hotkey {keys} using only approved "
         "shortcuts ctrl+a/c/v/x/s/z/y/f/w/t, alt+tab/f4, win+d/e, or one navigation "
@@ -2358,7 +2358,7 @@ def plan_desktop_action(question):
     args = parsed.get("arguments") or {}
     if action == "no_action" or not isinstance(args, dict):
         return None
-    allowed_apps = {"notepad", "calculator", "paint", "explorer", "chrome", "edge"}
+    allowed_apps = {"notepad", "calculator", "paint", "explorer", "chrome", "edge", "vscode"}
     if action == "open_app":
         app_name = str(args.get("app") or "").lower()
         if app_name not in allowed_apps: return None
