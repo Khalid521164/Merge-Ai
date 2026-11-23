@@ -3192,6 +3192,8 @@ if st.session_state.ma_control_screen and not st.session_state.ma_voice_screen:
                 st.warning("This pairing QR code has expired.")
             else:
                 qr_image = qrcode.make(st.session_state.ma_control_pair_url)
+                # qrcode returns a PilImage wrapper; Streamlit needs the underlying PIL image.
+                qr_image = qr_image.get_image()
                 qr_col, details_col = st.columns([1, 2])
                 with qr_col:
                     st.image(qr_image, width=230, caption="Scan with your phone")
