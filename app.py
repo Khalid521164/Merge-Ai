@@ -51,6 +51,10 @@ def secret(name, default=""):
     except Exception:
         pass
 
+    value = _secret_mapping_value(st.secrets, [name])
+    if value:
+        return value
+
     value = _clean_secret_value(os.environ.get(name))
     return value if value else default
 
@@ -71,6 +75,43 @@ def _secret_mapping_value(mapping, candidates):
             value = _clean_secret_value(mapping[actual_key])
         except Exception:
             value = ""
+        if value:
+            return value
+    return ""
+
+
+def supabase_secret(name, *aliases):
+    """Read Supabase settings from root secrets, a Supabase section, or env."""
+    field_aliases = {
+        "SUPABASE_URL": ("url",),
+        "SUPABASE_SECRET_KEY": ("secret_key",),
+        "SUPABASE_SERVICE_ROLE_KEY": ("service_role_key",),
+        "SUPABASE_PUBLISHABLE_KEY": ("publishable_key", "public_key"),
+        "SUPABASE_ANON_KEY": ("anon_key",),
+    }
+    candidates = tuple(dict.fromkeys((name, *aliases, *field_aliases.get(name, ()))))
+    value = _secret_mapping_value(st.secrets, candidates)
+    if value:
+        return value
+
+    try:
+        root_keys = list(st.secrets.keys())
+    except Exception:
+        root_keys = []
+    for section_key in root_keys:
+        if str(section_key).casefold() not in {
+            "supabase", "supabase_credentials", "supabase_secrets",
+        }:
+            continue
+        try:
+            value = _secret_mapping_value(st.secrets[section_key], candidates)
+        except Exception:
+            value = ""
+        if value:
+            return value
+
+    for candidate in candidates:
+        value = _clean_secret_value(os.environ.get(candidate))
         if value:
             return value
     return ""
@@ -181,6 +222,14 @@ from about_merge_ai import PROJECT_CONTEXT, CREATOR_NAME, CREATED_FOR, PURPOSE, 
 from file_studio import read_uploads, analyze_images
 from social_integrations import get_social_integrations
 from image_generation import generate_image, ImageGenerationError
+from jarvis_control import (
+    find_control_agent_request,
+    is_device_live,
+    parse_desktop_action_response,
+    requires_extra_confirmation,
+    resolve_public_key,
+    validate_public_key,
+)
 
 try:
     from merge_ai import MergeAI, default_providers
@@ -2243,6 +2292,50 @@ def control_context_for_chat(chat):
     )
 
 
+def sync_control_command_results(chat, commands):
+    """Copy actual bridge completion results into the matching Jarvis proposal."""
+    by_id = {
+        str(command.get("command_id")): command
+        for command in commands
+        if command.get("command_id")
+    }
+    changed = False
+    for message in chat.get("messages", []):
+        command = by_id.get(str(message.get("desktop_command_id") or ""))
+        if not command:
+            continue
+        status = str(command.get("status") or "")
+        if status not in {"running", "completed", "failed", "cancelled"}:
+            continue
+        result_text = str(command.get("result_text") or "")
+        display_result = (
+            "Screenshot captured and returned to this conversation."
+            if result_text.startswith("SCREENSHOT_JPEG_BASE64:")
+            else result_text[:500]
+        )
+        if (
+            message.get("proposal_status") != status
+            or message.get("desktop_result") != display_result
+        ):
+            message["proposal_status"] = status
+            message["desktop_result"] = display_result
+            changed = True
+    if changed:
+        persist(chat)
+    return changed
+
+
+def queue_desktop_action(chat_id, session_id, proposal):
+    if not db or st.session_state.ma_db_error:
+        raise CloudHistoryError("Reconnect Supabase cloud history before approving this action.")
+    return db.create_control_command({
+        "session_id": str(session_id or ""),
+        "chat_id": str(chat_id or ""),
+        "action": proposal["action"],
+        "arguments": proposal["arguments"],
+    })
+
+
 def start_control_chat(mode="pc", pair_token=""):
     """Create a dedicated Jarvis conversation, optionally paired to a phone."""
     chat = make_chat()
@@ -2290,13 +2383,31 @@ def create_desktop_bridge_pairing(chat):
     """Create a short-lived pairing file; only its token hash is stored in Supabase."""
     if not user or not db:
         raise CloudHistoryError("Sign in with Google and connect Supabase first.")
-    supabase_url = secret("SUPABASE_URL")
-    anon_key = secret("SUPABASE_ANON_KEY")
-    if not supabase_url or not anon_key:
-        raise CloudHistoryError("Add SUPABASE_URL and SUPABASE_ANON_KEY to Streamlit Cloud Secrets.")
+    if st.session_state.ma_db_error:
+        raise CloudHistoryError("Reconnect Supabase cloud history before pairing a Windows PC.")
+    supabase_url = supabase_secret("SUPABASE_URL")
+    public_key = resolve_public_key(lambda name: supabase_secret(name))
+    if not supabase_url:
+        raise CloudHistoryError("Missing Streamlit Secret: SUPABASE_URL.")
+    if not public_key:
+        raise CloudHistoryError(
+            "Missing Streamlit Secret: SUPABASE_PUBLISHABLE_KEY "
+            "(or legacy SUPABASE_ANON_KEY). The server secret key cannot be used by the companion."
+        )
+    try:
+        validate_public_key(public_key)
+    except ValueError as exc:
+        raise CloudHistoryError(str(exc)) from None
     metadata = control_context_for_chat(chat)
     if not metadata:
         raise CloudHistoryError("Open a Jarvis Control Mode conversation first.")
+    st.session_state.ma_bridge_pair_file = ""
+
+    # Retire any earlier pairing for this exact conversation before minting
+    # another device token. This also cleans up sessions left by older builds.
+    for old_device in db.list_control_devices_for_chat(chat["id"]):
+        db.end_control_device(old_device["session_id"], chat_id=chat["id"])
+
     session_id = str(uuid.uuid4())
     device_token = secrets.token_urlsafe(48)
     now = time.time()
@@ -2312,13 +2423,22 @@ def create_desktop_bridge_pairing(chat):
     st.session_state.ma_bridge_session_id = session_id
     st.session_state.ma_bridge_pair_file = json.dumps({
         "supabase_url": supabase_url,
-        "supabase_anon_key": anon_key,
+        "supabase_public_key": public_key,
         "session_id": session_id,
         "device_token": device_token,
     }, indent=2)
     st.session_state.ma_bridge_pair_filename = "merge-ai-desktop-pairing.json"
     st.session_state.ma_bridge_pair_error = ""
-    persist(chat)
+    try:
+        db.save_chat(chat)
+        st.session_state.ma_db_error = ""
+    except CloudHistoryError:
+        db.end_control_device(session_id, chat_id=chat["id"])
+        metadata.pop("desktop_session_id", None)
+        st.session_state.ma_bridge_session_id = ""
+        st.session_state.ma_bridge_pair_file = ""
+        st.session_state.ma_bridge_pair_error = ""
+        raise
     return session_id
 
 
@@ -2341,66 +2461,24 @@ def plan_desktop_action(question):
     )
     result = engine().ask(prompt, fast=True, web_search=False)
     raw, _ = extract(result)
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.strip("`")
-        raw = raw[4:] if raw.lower().startswith("json") else raw
-    start, end = raw.find("{"), raw.rfind("}")
-    if start < 0 or end <= start:
-        return None
-    try:
-        parsed = json.loads(raw[start:end + 1])
-    except (ValueError, TypeError):
-        return None
-    if not isinstance(parsed, dict):
-        return None
-    action = str(parsed.get("action") or "no_action").strip().lower()
-    args = parsed.get("arguments") or {}
-    if action == "no_action" or not isinstance(args, dict):
-        return None
-    allowed_apps = {"notepad", "calculator", "paint", "explorer", "chrome", "edge", "vscode"}
-    if action == "open_app":
-        app_name = str(args.get("app") or "").lower()
-        if app_name not in allowed_apps: return None
-        args = {"app": app_name}
-    elif action == "open_url":
-        from urllib.parse import urlsplit
-        url = str(args.get("url") or "").strip()
-        parsed_url = urlsplit(url)
-        if parsed_url.scheme not in ("http", "https") or not parsed_url.hostname or parsed_url.username or parsed_url.password: return None
-        args = {"url": url[:2000]}
-    elif action in ("click", "move_mouse"):
-        position = str(args.get("position") or "").lower()
-        if position in {"top-left", "top-right", "bottom-left", "bottom-right", "center"}:
-            args = {"position": position}
-        else:
-            try: x, y = int(args.get("x")), int(args.get("y"))
-            except (TypeError, ValueError): return None
-            if not (0 <= x <= 10000 and 0 <= y <= 10000): return None
-            args = {"x": x, "y": y}
-    elif action == "type_text":
-        text_value = str(args.get("text") or "")
-        if not (1 <= len(text_value) <= 3000): return None
-        args = {"text": text_value}
-    elif action == "hotkey":
-        keys = args.get("keys")
-        hotkeys = {("ctrl","a"),("ctrl","c"),("ctrl","v"),("ctrl","x"),("ctrl","s"),("ctrl","z"),("ctrl","y"),("ctrl","f"),("ctrl","w"),("ctrl","t"),("alt","tab"),("alt","f4"),("win","d"),("win","e")}
-        singles = {"enter","esc","tab","space","backspace","delete","up","down","left","right","home","end","pageup","pagedown"}
-        if not isinstance(keys, list): return None
-        kt = tuple(str(k).lower() for k in keys)
-        if kt not in hotkeys and not (len(kt)==1 and kt[0] in singles): return None
-        args = {"keys": list(kt)}
-    elif action == "scroll":
-        direction = str(args.get("direction") or "").lower()
-        try: ticks = int(args.get("ticks", 3))
-        except (TypeError, ValueError): return None
-        if direction not in ("up","down") or not (1 <= ticks <= 15): return None
-        args = {"direction": direction, "ticks": ticks}
-    elif action == "screenshot":
-        args = {}
-    else:
-        return None
-    return {"action": action, "arguments": args}
+    return parse_desktop_action_response(raw)
+
+
+def parse_control_agent_request(question):
+    """Recognize an explicit request to use an existing Merge AI agent."""
+    return find_control_agent_request(question, get_agents())
+
+
+def ask_control_agent(chat, agent, task, attachments=None):
+    """Run an existing specialist against the current Jarvis conversation."""
+    agent_chat = {
+        **chat,
+        "messages": list(chat.get("messages", [])) + [{
+            "role": "agent_context",
+            "agent_id": agent["id"],
+        }],
+    }
+    return ask_ai(agent_chat, task, attachments=attachments)
 
 
 def start_agent_chat(agent, new_chat=False):
@@ -2518,10 +2596,19 @@ def cloud():
     if not user:
         return None
 
-    url = secret("SUPABASE_URL")
-    key = secret("SUPABASE_SECRET_KEY")
+    url = supabase_secret("SUPABASE_URL")
+    key = (
+        supabase_secret("SUPABASE_SECRET_KEY")
+        or supabase_secret("SUPABASE_SERVICE_ROLE_KEY")
+    )
 
-    if not url or not key:
+    missing = []
+    if not url:
+        missing.append("SUPABASE_URL")
+    if not key:
+        missing.append("SUPABASE_SECRET_KEY (or legacy SUPABASE_SERVICE_ROLE_KEY)")
+    if missing:
+        st.session_state.ma_db_error = "Missing Streamlit Secrets: " + ", ".join(missing) + "."
         return None
 
     return CloudHistory(
@@ -4192,8 +4279,11 @@ if st.session_state.ma_voice_screen:
                     voice_control = control_context_for_chat(voice_chat_record)
                     if spoken_user and voice_control and voice_control.get("desktop_session_id") and db:
                         try:
-                            live_device = db.get_control_device(voice_control["desktop_session_id"])
-                            if live_device and live_device.get("status") == "active":
+                            live_device = db.get_control_device(
+                                voice_control["desktop_session_id"],
+                                chat_id=voice_chat_record["id"],
+                            )
+                            if is_device_live(live_device):
                                 voice_proposal = plan_desktop_action(spoken_user)
                                 if voice_proposal:
                                     st.session_state.ma_voice_pending_proposal = {
@@ -4234,16 +4324,37 @@ if st.session_state.ma_voice_screen:
                 + str(pending_voice["proposal"]["action"]).replace("_", " ").title()
                 + " · " + json.dumps(pending_voice["proposal"]["arguments"], ensure_ascii=False)
             )
+            voice_needs_second_approval = requires_extra_confirmation(
+                pending_voice["proposal"].get("action"),
+                pending_voice["proposal"].get("arguments"),
+            )
+            if voice_needs_second_approval:
+                st.info("Clicks and Enter actions need a second approval because they can submit, send, purchase, delete, or change something.")
             voice_yes, voice_no = st.columns(2)
             with voice_yes:
-                if st.button("Approve and run on PC", key="ma_voice_approve_action", type="primary"):
+                voice_button_label = (
+                    "Confirm and run on PC"
+                    if voice_needs_second_approval and pending_voice.get("sensitive_confirmed")
+                    else (
+                        "Review potentially sensitive action"
+                        if voice_needs_second_approval
+                        else "Approve and run on PC"
+                    )
+                )
+                if st.button(voice_button_label, key="ma_voice_approve_action", type="primary"):
+                    if voice_needs_second_approval and not pending_voice.get("sensitive_confirmed"):
+                        pending_voice["sensitive_confirmed"] = True
+                        st.session_state.ma_voice_pending_proposal = pending_voice
+                        st.rerun()
                     try:
+                        if not voice_chat:
+                            raise CloudHistoryError("The Jarvis conversation is no longer available.")
                         voice_context = control_context_for_chat(voice_chat)
-                        db.create_control_command({
-                            "session_id": voice_context["desktop_session_id"],
-                            "action": pending_voice["proposal"]["action"],
-                            "arguments": pending_voice["proposal"]["arguments"],
-                        })
+                        if not voice_context or not voice_context.get("desktop_session_id"):
+                            raise CloudHistoryError("The Windows companion is no longer paired to this conversation.")
+                        queue_desktop_action(
+                            voice_chat["id"], voice_context["desktop_session_id"], pending_voice["proposal"]
+                        )
                         st.session_state.ma_voice_pending_proposal = None
                         st.success("Approved. The Windows companion will run this action.")
                     except Exception as exc:
@@ -4298,41 +4409,73 @@ if active_control:
             "Jarvis can interpret your commands and coordinate Merge AI agents in this chat. "
             "Connect the Windows Desktop Bridge below to enable approved computer actions."
         )
-    if not active_control.get("desktop_session_id") and user and db:
-        with st.expander("🖥️ Connect this Windows PC", expanded=True):
-            st.write("Download a one-time pairing file, then load it in Merge AI Desktop Bridge on this computer.")
-            if st.button("Create desktop pairing file", key="ma_create_desktop_pair_file"):
-                try:
-                    create_desktop_bridge_pairing(chat)
-                    st.rerun()
-                except Exception as exc:
-                    st.error(str(exc))
-            if st.session_state.ma_bridge_pair_file:
-                st.download_button("⬇ Download pairing file", data=st.session_state.ma_bridge_pair_file, file_name=st.session_state.ma_bridge_pair_filename, mime="application/json", key="ma_download_desktop_pair_file")
-    elif active_control.get("desktop_session_id") and db:
-        bridge_session_id = active_control["desktop_session_id"]
-        control_col1, control_col2 = st.columns([1, 1])
-        with control_col1:
-            if st.button("↻ Refresh desktop activity", key="ma_refresh_bridge_activity"): st.rerun()
-        with control_col2:
-            if st.button("■ Stop desktop control", key="ma_stop_bridge_session"):
-                try:
-                    db.end_control_device(bridge_session_id)
-                    st.success("Desktop control stopped.")
-                    st.rerun()
-                except CloudHistoryError as exc:
-                    st.error("Could not stop the desktop session: " + str(exc))
+    bridge_session_id = str(active_control.get("desktop_session_id") or "")
+    bridge_device = None
+    bridge_commands = []
+    if user and db:
         try:
-            bridge_device = db.get_control_device(bridge_session_id)
-            if bridge_device and bridge_device.get("status") == "active":
-                st.success("Desktop Bridge connected · last heartbeat " + str(bridge_device.get("last_seen_at") or "recently"))
-            else:
-                st.warning("Desktop Bridge is not connected.")
-            bridge_commands = db.list_control_commands(bridge_session_id, limit=8)
+            if bridge_session_id:
+                bridge_device = db.get_control_device(bridge_session_id, chat_id=chat["id"])
+                bridge_commands = db.list_control_commands(
+                    bridge_session_id, limit=8, chat_id=chat["id"]
+                )
+                sync_control_command_results(chat, bridge_commands)
+            device_live = is_device_live(bridge_device)
+            if device_live:
+                st.success(
+                    "Windows PC connected · last heartbeat "
+                    + str(bridge_device.get("last_seen_at") or "recently")
+                )
+            elif bridge_device and bridge_device.get("status") == "pending":
+                st.info("Pairing pending · load the pairing file in the Windows companion and approve the connection there.")
+            elif bridge_device and bridge_device.get("status") == "active":
+                st.warning(
+                    "Windows PC is offline · last heartbeat "
+                    + str(bridge_device.get("last_seen_at") or "unknown")
+                )
+            elif bridge_session_id:
+                st.warning("Windows Desktop Bridge is disconnected.")
+
+            if bridge_device and bridge_device.get("status") in {"pending", "active"}:
+                control_col1, control_col2 = st.columns([1, 1])
+                with control_col1:
+                    if st.button("↻ Refresh desktop activity", key="ma_refresh_bridge_activity"):
+                        st.rerun()
+                with control_col2:
+                    if st.button("■ Stop desktop control", key="ma_stop_bridge_session"):
+                        try:
+                            db.end_control_device(bridge_session_id, chat_id=chat["id"])
+                            st.success("Desktop control stopped.")
+                            st.rerun()
+                        except CloudHistoryError as exc:
+                            st.error("Could not stop the desktop session: " + str(exc))
+
+            if not device_live:
+                label = "Reconnect this Windows PC" if bridge_session_id else "Connect this Windows PC"
+                with st.expander("🖥️ " + label, expanded=not bool(bridge_session_id)):
+                    st.write("Download a temporary pairing file and load it in Merge AI Desktop Bridge on this computer.")
+                    if st.button("Create desktop pairing file", key="ma_create_desktop_pair_file"):
+                        try:
+                            create_desktop_bridge_pairing(chat)
+                            st.rerun()
+                        except Exception as exc:
+                            st.error(str(exc))
+                    if st.session_state.ma_bridge_pair_file:
+                        st.download_button(
+                            "⬇ Download pairing file",
+                            data=st.session_state.ma_bridge_pair_file,
+                            file_name=st.session_state.ma_bridge_pair_filename,
+                            mime="application/json",
+                            key="ma_download_desktop_pair_file",
+                        )
+
             if bridge_commands:
                 with st.expander("🖥️ Recent desktop actions", expanded=True):
                     for bridge_command in reversed(bridge_commands):
-                        st.caption(str(bridge_command.get("action", "")).replace("_", " ").title() + " · " + str(bridge_command.get("status", "unknown")))
+                        st.caption(
+                            str(bridge_command.get("action", "")).replace("_", " ").title()
+                            + " · " + str(bridge_command.get("status", "unknown"))
+                        )
                         result_text = str(bridge_command.get("result_text") or "")
                         if result_text.startswith("SCREENSHOT_JPEG_BASE64:"):
                             try:
@@ -4354,9 +4497,11 @@ if active_control:
                             except Exception:
                                 st.caption("Screenshot result could not be displayed.")
                         elif result_text:
-                            st.write(result_text[:500])
+                            st.text(result_text[:500])
         except CloudHistoryError as exc:
             st.caption("Desktop activity is temporarily unavailable: " + str(exc))
+    elif user:
+        st.warning(st.session_state.ma_db_error or "Connect Supabase cloud history before pairing a Windows PC.")
     if active_control.get("mode") == "phone" and db and st.button("↻ Refresh shared phone conversation", key="ma_refresh_control_chat"):
         try:
             refreshed = next(
@@ -4473,12 +4618,16 @@ for i, msg in enumerate(chat["messages"]):
     else:
 
         assistant_label = (
-            "🤝 Agent Team · " + " → ".join(agent["name"] for agent in active_team)
-            if active_team
+            "◉ Jarvis · " + str(msg["delegated_agent_name"])
+            if msg.get("delegated_agent_name") and active_control
             else (
-                active_agent.get("avatar", "🤖") + "  " + active_agent["name"]
-                if active_agent
-                else "✦ Merge AI"
+                "🤝 Agent Team · " + " → ".join(agent["name"] for agent in active_team)
+                if active_team
+                else (
+                    active_agent.get("avatar", "🤖") + "  " + active_agent["name"]
+                    if active_agent
+                    else "✦ Merge AI"
+                )
             )
         )
         st.markdown(
@@ -4498,13 +4647,19 @@ for i, msg in enumerate(chat["messages"]):
             if proposal_status == "pending":
                 confirm_col, cancel_col = st.columns(2)
                 with confirm_col:
-                    if st.button("Approve and run", key="ma_approve_desktop_" + proposal_id, type="primary"):
+                    needs_second_approval = requires_extra_confirmation(
+                        desktop_proposal.get("action"), desktop_proposal.get("arguments")
+                    )
+                    if needs_second_approval:
+                        if st.button("Review potentially sensitive action", key="ma_approve_desktop_" + proposal_id, type="primary"):
+                            msg["proposal_status"] = "confirm_sensitive"
+                            persist(chat)
+                            st.rerun()
+                    elif st.button("Approve and run", key="ma_approve_desktop_" + proposal_id, type="primary"):
                         try:
-                            command_id = db.create_control_command({
-                                "session_id": str(active_control.get("desktop_session_id") or ""),
-                                "action": desktop_proposal["action"],
-                                "arguments": desktop_proposal["arguments"],
-                            })
+                            command_id = queue_desktop_action(
+                                chat["id"], active_control.get("desktop_session_id"), desktop_proposal
+                            )
                             msg["proposal_status"] = "queued"
                             msg["desktop_command_id"] = command_id
                             msg["content"] = content + "\n\n**Approved.** Sent to your connected Windows PC."
@@ -4517,10 +4672,44 @@ for i, msg in enumerate(chat["messages"]):
                         msg["proposal_status"] = "cancelled"
                         persist(chat)
                         st.rerun()
+            elif proposal_status == "confirm_sensitive":
+                st.warning(
+                    "A click or Enter key can submit a form, send a message, purchase an item, "
+                    "delete data, or change a setting. Inspect the target on your PC, then confirm again to run it."
+                )
+                confirm_col, cancel_col = st.columns(2)
+                with confirm_col:
+                    if st.button("Confirm and run", key="ma_confirm_desktop_" + proposal_id, type="primary"):
+                        try:
+                            command_id = queue_desktop_action(
+                                chat["id"], active_control.get("desktop_session_id"), desktop_proposal
+                            )
+                            msg["proposal_status"] = "queued"
+                            msg["desktop_command_id"] = command_id
+                            msg["content"] = content + "\n\n**Confirmed.** Sent to your connected Windows PC."
+                            persist(chat)
+                            st.rerun()
+                        except Exception as exc:
+                            st.error("Could not queue the action: " + str(exc))
+                with cancel_col:
+                    if st.button("Cancel action", key="ma_cancel_sensitive_desktop_" + proposal_id):
+                        msg["proposal_status"] = "cancelled"
+                        persist(chat)
+                        st.rerun()
             elif proposal_status == "queued":
                 st.caption("Approved and queued · waiting for the Windows companion")
+            elif proposal_status == "running":
+                st.caption("The Windows companion is running this approved action.")
+            elif proposal_status == "completed":
+                st.success("The Windows companion completed this action.")
+                if msg.get("desktop_result"):
+                    st.text(str(msg["desktop_result"])[:500])
+            elif proposal_status == "failed":
+                st.error("The Windows companion could not complete this action.")
+                if msg.get("desktop_result"):
+                    st.text(str(msg["desktop_result"])[:500])
             elif proposal_status == "cancelled":
-                st.caption("Action cancelled.")
+                st.caption("The desktop command was cancelled.")
         team_workflow = msg.get("team_workflow") or []
         if team_workflow:
             with st.expander("🤝 How your agent team worked"):
@@ -4907,18 +5096,25 @@ if question and question.strip():
     # Build context BEFORE appending the question.
     team_workflow = []
     desktop_proposal = None
+    delegated_agent = None
     control_chat_context = control_context_for_chat(chat)
     try:
-        if control_chat_context and not db:
-            answer, sources = ("Sign in with Google and connect Supabase before controlling a Windows PC.", [])
-        elif control_chat_context and not control_chat_context.get("desktop_session_id"):
-            answer, sources = ("Connect the Windows Desktop Bridge first. Open **Connect this Windows PC**, download the pairing file, and load it in the companion app.", [])
-        elif control_chat_context:
-            desktop_status = db.get_control_device(control_chat_context["desktop_session_id"])
-            if not desktop_status or desktop_status.get("status") != "active":
-                answer, sources = ("Your Windows Desktop Bridge is not connected. Open the companion, load the pairing file, and press **Start secure connection**.", [])
+        if control_chat_context:
+            agent_request = parse_control_agent_request(question)
+            if agent_request:
+                delegated_agent, delegated_task = agent_request
+                answer, sources = ask_control_agent(
+                    chat, delegated_agent, delegated_task, attachments=attachment_payload
+                )
             else:
-                desktop_proposal = plan_desktop_action(question)
+                desktop_status = None
+                if db and control_chat_context.get("desktop_session_id"):
+                    desktop_status = db.get_control_device(
+                        control_chat_context["desktop_session_id"],
+                        chat_id=chat["id"],
+                    )
+                if is_device_live(desktop_status):
+                    desktop_proposal = plan_desktop_action(question)
                 if desktop_proposal:
                     answer, sources = ("I prepared a desktop action. Review the details below and approve it before I send anything to your PC.", [])
                 else:
@@ -4967,6 +5163,8 @@ if question and question.strip():
     }
     if team_workflow:
         assistant_message["team_workflow"] = team_workflow
+    if delegated_agent:
+        assistant_message["delegated_agent_name"] = delegated_agent["name"]
     if desktop_proposal:
         assistant_message["desktop_action_proposal"] = desktop_proposal
         assistant_message["proposal_id"] = str(uuid.uuid4())

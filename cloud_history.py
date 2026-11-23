@@ -8,6 +8,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 
+from jarvis_control import is_device_live, normalize_desktop_action, validate_server_key
+
 
 class CloudHistoryError(Exception):
     """An error safe to display without revealing secrets."""
@@ -31,9 +33,10 @@ class CloudHistory:
                 or p.username or p.password or p.path not in ('', '/')
                 or p.query or p.fragment):
             raise CloudHistoryError('Invalid SUPABASE_URL. Use https://PROJECT.supabase.co')
-        key = str(secret_key or '').strip()
-        if not key or key.startswith('sb_publishable_'):
-            raise CloudHistoryError('A Supabase server secret key is required.')
+        try:
+            key = validate_server_key(secret_key)
+        except ValueError as exc:
+            raise CloudHistoryError(str(exc)) from None
         if not isinstance(owner, str) or not owner.startswith('google:') or len(owner) > 300:
             raise CloudHistoryError('Sign in with Google to save chats.')
         self.base = 'https://' + host + '/rest/v1/'
@@ -224,17 +227,41 @@ class CloudHistory:
         self._call('POST', 'ma2_control_devices', data=record)
         return session_id
 
-    def get_control_device(self, session_id):
+    def list_control_devices_for_chat(self, chat_id):
+        try:
+            chat_id = str(uuid.UUID(str(chat_id)))
+        except (ValueError, TypeError, AttributeError):
+            raise CloudHistoryError('Invalid Jarvis conversation ID.') from None
+        rows = self._call('GET', 'ma2_control_devices', {
+            'chat_id': 'eq.' + chat_id,
+            'owner_sub': 'eq.' + self.owner,
+            'status': 'in.(pending,active)',
+            'select': 'session_id,chat_id,status,pair_expires_at,expires_at,last_seen_at,created_at',
+            'order': 'created_at.desc',
+            'limit': '100',
+        })
+        if not isinstance(rows, list):
+            raise CloudHistoryError('Unexpected desktop bridge response.')
+        return rows
+
+    def get_control_device(self, session_id, chat_id=None):
         try:
             session_id = str(uuid.UUID(str(session_id)))
         except (ValueError, TypeError, AttributeError):
             raise CloudHistoryError('Invalid desktop bridge session ID.') from None
-        rows = self._call('GET', 'ma2_control_devices', {
+        filters = {
             'session_id': 'eq.' + session_id,
             'owner_sub': 'eq.' + self.owner,
             'select': 'session_id,chat_id,status,pair_expires_at,expires_at,last_seen_at,created_at',
             'limit': '1',
-        })
+        }
+        if chat_id is not None:
+            try:
+                chat_id = str(uuid.UUID(str(chat_id)))
+            except (ValueError, TypeError, AttributeError):
+                raise CloudHistoryError('Invalid Jarvis conversation ID.') from None
+            filters['chat_id'] = 'eq.' + chat_id
+        rows = self._call('GET', 'ma2_control_devices', filters)
         if not isinstance(rows, list):
             raise CloudHistoryError('Unexpected desktop bridge response.')
         return rows[0] if rows else None
@@ -246,34 +273,35 @@ class CloudHistory:
         try:
             command_id = str(uuid.UUID(str(command.get('command_id') or uuid.uuid4())))
             session_id = str(uuid.UUID(str(command['session_id'])))
+            chat_id = str(uuid.UUID(str(command['chat_id'])))
         except (KeyError, ValueError, TypeError, AttributeError):
-            raise CloudHistoryError('Invalid desktop command ID.') from None
-        allowed = {
-            'screenshot', 'open_app', 'open_url', 'click',
-            'move_mouse', 'type_text', 'hotkey', 'scroll',
-        }
-        action = str(command.get('action') or '')
-        arguments = command.get('arguments') or {}
-        if action not in allowed or not isinstance(arguments, dict):
-            raise CloudHistoryError('Unsupported desktop command.')
-        device = self.get_control_device(session_id)
-        if not device or device.get('status') != 'active':
+            raise CloudHistoryError('Invalid desktop command or conversation ID.') from None
+        try:
+            normalized = normalize_desktop_action(
+                command.get('action'), command.get('arguments') or {}
+            )
+        except (TypeError, ValueError) as exc:
+            raise CloudHistoryError(str(exc)) from None
+        device = self.get_control_device(session_id, chat_id=chat_id)
+        if not is_device_live(device):
             raise CloudHistoryError('The desktop bridge is not connected.')
         self._call('POST', 'ma2_control_commands', data={
             'command_id': command_id,
             'session_id': session_id,
             'owner_sub': self.owner,
-            'action': action,
-            'arguments': arguments,
+            'action': normalized['action'],
+            'arguments': normalized['arguments'],
             'status': 'approved',
         })
         return command_id
 
-    def list_control_commands(self, session_id, limit=10):
+    def list_control_commands(self, session_id, limit=10, chat_id=None):
         try:
             session_id = str(uuid.UUID(str(session_id)))
         except (ValueError, TypeError, AttributeError):
             raise CloudHistoryError('Invalid desktop bridge session ID.') from None
+        if chat_id is not None and not self.get_control_device(session_id, chat_id=chat_id):
+            raise CloudHistoryError('The desktop session does not belong to this Jarvis conversation.')
         rows = self._call('GET', 'ma2_control_commands', {
             'session_id': 'eq.' + session_id,
             'owner_sub': 'eq.' + self.owner,
@@ -285,16 +313,22 @@ class CloudHistory:
             raise CloudHistoryError('Unexpected desktop command response.')
         return rows
 
-    def end_control_device(self, session_id):
+    def end_control_device(self, session_id, chat_id=None):
         try:
             session_id = str(uuid.UUID(str(session_id)))
         except (ValueError, TypeError, AttributeError):
             raise CloudHistoryError('Invalid desktop bridge session ID.') from None
-        self._call('PATCH', 'ma2_control_devices', {
+        filters = {
             'session_id': 'eq.' + session_id,
             'owner_sub': 'eq.' + self.owner,
             'status': 'in.(pending,active)',
-        }, {'status': 'stopped'})
+        }
+        if chat_id is not None:
+            device = self.get_control_device(session_id, chat_id=chat_id)
+            if not device:
+                raise CloudHistoryError('The desktop session does not belong to this Jarvis conversation.')
+            filters['chat_id'] = 'eq.' + str(uuid.UUID(str(chat_id)))
+        self._call('PATCH', 'ma2_control_devices', filters, {'status': 'stopped'})
         self._call('PATCH', 'ma2_control_commands', {
             'session_id': 'eq.' + session_id,
             'owner_sub': 'eq.' + self.owner,
