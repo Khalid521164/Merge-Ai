@@ -28,6 +28,14 @@ go.work.sum
 # env file
 .env
 
+# Python runtime and test artifacts
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.spec
+
 # Editor/IDE
 # .idea/
 # .vscode/

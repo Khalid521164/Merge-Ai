@@ -4,7 +4,7 @@ This is a visible Windows companion for the hosted Merge AI app. It enables appr
 
 ## 1. Supabase setup
 
-Run the supabase_control_bridge.sql file in the Supabase SQL Editor. This creates private relay tables and three narrowly scoped RPC functions. The tables have RLS enabled and no direct permissions for the anon or authenticated roles; the Windows companion can only call the approved RPC functions with its per-session token hash.
+Run the supabase_control_bridge.sql file in the Supabase SQL Editor. This creates private relay tables and narrowly scoped RPC functions. The tables have RLS enabled and no direct permissions for the anon or authenticated roles; the Windows companion can only call the approved RPC functions with its per-session token hash.
 
 ## 2. Streamlit Secrets
 
@@ -12,9 +12,9 @@ Add these keys in Streamlit Community Cloud → App settings → Secrets:
 
     SUPABASE_URL = "https://YOUR-PROJECT.supabase.co"
     SUPABASE_SECRET_KEY = "YOUR_SERVER_SIDE_SUPABASE_SECRET"
-    SUPABASE_ANON_KEY = "YOUR_PUBLIC_SUPABASE_ANON_KEY"
+    SUPABASE_PUBLISHABLE_KEY = "sb_publishable_..."
 
-Never put the Supabase server secret key in the pairing file or in the Windows companion. Only the public anon key and a short-lived per-session device token are downloaded.
+The desktop companion accepts the legacy `SUPABASE_ANON_KEY` in place of `SUPABASE_PUBLISHABLE_KEY` during migration. The server connection uses `SUPABASE_SECRET_KEY` (or the legacy `SUPABASE_SERVICE_ROLE_KEY`). Never put a server secret key in the pairing file or Windows companion. Only the public key and a random per-session device token are downloaded. New `sb_publishable_` keys are sent on the `apikey` header, not as bearer tokens.
 
 ## 3. Build the Windows companion
 
@@ -35,7 +35,7 @@ You can also run it directly with python desktop_bridge.py.
 5. For phone mode, also scan the phone QR code and sign in with the same Google account.
 6. The desktop companion shows a visible ACTIVE status while connected. Press STOP REMOTE CONTROL at any time. Moving the pointer to the top-left corner also activates PyAutoGUI's emergency failsafe.
 
-Pairing config expires after 10 minutes. The active desktop-control session expires after 8 hours. Generate a new pairing file to reconnect.
+The pairing window expires after 10 minutes. The active desktop-control session expires after 8 hours. Generate a new pairing file to reconnect; creating a replacement stops earlier pending or active sessions for that Jarvis conversation. The companion keeps the session token in memory only while it is open. Keep the downloaded pairing file private and delete it after loading.
 
 ## Supported actions
 
@@ -47,7 +47,7 @@ Pairing config expires after 10 minutes. The active desktop-control session expi
 - Press a short allowlisted keyboard shortcut or navigation key.
 - Scroll up or down up to 15 steps.
 
-The bridge rejects arbitrary shell commands, arbitrary executable paths, arbitrary keyboard shortcuts, invalid coordinates, oversized text, and non-HTTP(S) URLs. The Merge AI interface must explicitly approve every command before it enters the relay queue.
+The bridge rejects arbitrary shell commands, arbitrary executable paths, arbitrary keyboard shortcuts, invalid coordinates, oversized text, and non-HTTP(S) URLs. The Merge AI interface previews every command and waits for approval before queueing it. Click and Enter actions require a second confirmation because they can submit forms, send messages, purchase items, delete data, or change settings.
 
 ## Safety and limitations
 
@@ -55,5 +55,5 @@ The bridge rejects arbitrary shell commands, arbitrary executable paths, arbitra
 - The bridge window stays visible and has an immediate stop button.
 - Do not approve commands that could expose passwords, financial details, private messages, or other sensitive information.
 - Screenshots are returned to the Merge AI session only after an approved screenshot command.
-- Do not share pairing JSON files; they contain a temporary credential. Delete the downloaded JSON file after loading it into the companion. The companion removes its local saved pairing file when you press STOP or close the window.
+- Do not share pairing JSON files; they contain a temporary credential. Delete the downloaded JSON file after loading it into the companion. The companion keeps the token in memory only and clears it when you stop or close the window.
 - The bridge does not run arbitrary scripts, PowerShell, CMD, shell commands, file deletion, or unattended background tasks.
