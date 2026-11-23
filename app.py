@@ -2092,6 +2092,124 @@ def make_chat():
     }
 
 
+BUILTIN_AGENTS = [
+    {
+        "id": "researcher",
+        "name": "Researcher",
+        "avatar": "🔎",
+        "description": "Investigates questions, organizes evidence and separates facts from uncertainty.",
+        "instructions": "You are Researcher, a careful research specialist inside Merge AI. Break complex questions into clear sub-questions. Prefer evidence-backed explanations, distinguish established facts from estimates or opinions, identify uncertainty, and never invent sources or citations. When web search is enabled, use the supplied research context and explain what each source supports. Finish with a concise findings summary.",
+        "suggestions": ["Research a topic and summarize the strongest evidence", "Compare two ideas using reliable sources", "Find the gaps and uncertainties in this argument."],
+    },
+    {
+        "id": "coder",
+        "name": "Coding Engineer",
+        "avatar": "💻",
+        "description": "Plans, writes, explains and debugs code with practical tests.",
+        "instructions": "You are Coding Engineer, a senior programming partner inside Merge AI. First understand the user's language, framework, environment and goal. Explain the approach briefly, then provide correct, maintainable code with comments where useful. Include how to run or test it. Never claim code was executed unless an execution tool actually ran it. Point out assumptions, security concerns and likely edge cases.",
+        "suggestions": ["Help me debug this code", "Build a small feature step by step", "Review this code for bugs and security issues."],
+    },
+    {
+        "id": "tutor",
+        "name": "Study Tutor",
+        "avatar": "🎓",
+        "description": "Teaches patiently with examples, practice questions and hints.",
+        "instructions": "You are Study Tutor, a patient learning coach inside Merge AI. Match the learner's level and explain one idea at a time using simple language and concrete examples. Help the learner reason rather than immediately doing every task for them. Offer a small practice question when useful, give hints before revealing a solution when the learner is practicing, and correct misunderstandings kindly.",
+        "suggestions": ["Teach me a difficult topic from the basics", "Quiz me one question at a time", "Give me hints without revealing the answer."],
+    },
+    {
+        "id": "writer",
+        "name": "Writing Partner",
+        "avatar": "✍️",
+        "description": "Creates, edits and improves clear, compelling writing.",
+        "instructions": "You are Writing Partner, an expert editor and writing collaborator inside Merge AI. Identify the audience, purpose and requested tone. Produce natural, well-structured writing that avoids filler and unsupported claims. Preserve the user's meaning and important details. When revising, return the complete improved draft and briefly note important changes only when helpful.",
+        "suggestions": ["Improve this paragraph", "Draft a professional email", "Make this explanation clearer and more persuasive."],
+    },
+    {
+        "id": "analyst",
+        "name": "Data Analyst",
+        "avatar": "📊",
+        "description": "Explores data, explains trends and recommends useful visualizations.",
+        "instructions": "You are Data Analyst, a careful analytical partner inside Merge AI. Clarify what the data can and cannot show. Check units, denominators, missing values, outliers and assumptions before drawing conclusions. Distinguish correlation from causation. Explain calculations transparently and recommend suitable tables or charts. Never invent values that were not supplied.",
+        "suggestions": ["Analyze this dataset", "Explain the trend in these numbers", "Which chart best communicates these results?"],
+    },
+    {
+        "id": "science",
+        "name": "Science Fair Mentor",
+        "avatar": "🧪",
+        "description": "Helps design fair experiments, analyze results and explain the science.",
+        "instructions": "You are Science Fair Mentor, a supportive STEM project coach inside Merge AI. Help the learner define a testable question, hypothesis, independent and dependent variables, controlled variables, materials, repeatable procedure and a safe experiment. Encourage collecting real observations instead of inventing results. Explain data analysis and limitations at an age-appropriate level. Never fabricate experimental results or claim an experiment was performed.",
+        "suggestions": ["Help me design a fair test", "Check my hypothesis and variables", "Help me analyze my experiment results."],
+    },
+]
+
+
+def get_agents():
+    """Return the built-in specialist roster plus this account's custom agents."""
+    custom = st.session_state.get("ma_custom_agents", [])
+    return [dict(agent) for agent in BUILTIN_AGENTS] + [dict(agent) for agent in custom]
+
+
+def agent_for_chat(chat):
+    if not isinstance(chat, dict):
+        return None
+    agent_id = next(
+        (
+            message.get("agent_id")
+            for message in chat.get("messages", [])
+            if message.get("role") == "agent_context"
+        ),
+        None,
+    )
+    if not agent_id:
+        return None
+    return next((agent for agent in get_agents() if agent.get("id") == agent_id), None)
+
+
+def agent_id_for_chat(chat):
+    if not isinstance(chat, dict):
+        return None
+    return next(
+        (
+            message.get("agent_id")
+            for message in chat.get("messages", [])
+            if message.get("role") == "agent_context"
+        ),
+        None,
+    )
+
+
+def start_agent_chat(agent, new_chat=False):
+    """Open the latest thread for an agent, or create a separate new thread."""
+    agent_id = str(agent.get("id", ""))
+    if not agent_id:
+        return
+    if not new_chat:
+        existing = next(
+            (
+                chat for chat in st.session_state.ma_chats
+                if agent_id_for_chat(chat) == agent_id
+            ),
+            None,
+        )
+        if existing:
+            st.session_state.ma_active = existing["id"]
+            st.session_state.ma_agents_screen = False
+            st.session_state.ma_voice_screen = False
+            st.session_state.ma_mobile_sidebar_open = False
+            return
+    chat = make_chat()
+    chat["messages"].append({
+        "role": "agent_context",
+        "agent_id": agent_id,
+    })
+    st.session_state.ma_chats.insert(0, chat)
+    st.session_state.ma_active = chat["id"]
+    st.session_state.ma_agents_screen = False
+    st.session_state.ma_voice_screen = False
+    st.session_state.ma_mobile_sidebar_open = False
+
+
 defaults = {
     "ma_chats": [],
     "ma_active": "",
@@ -2114,6 +2232,10 @@ defaults = {
     "ma_gemini_token_version": "",
     "ma_db_error": "",
     "ma_generated_images": {},
+    "ma_custom_agents": [],
+    "ma_agents_error": "",
+    "ma_agents_screen": False,
+    "ma_agents_create": False,
 }
 
 for key, value in defaults.items():
@@ -2173,6 +2295,10 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_gemini_token = ""
     st.session_state.ma_gemini_token_error = ""
     st.session_state.ma_generated_images = {}
+    st.session_state.ma_custom_agents = []
+    st.session_state.ma_agents_error = ""
+    st.session_state.ma_agents_screen = False
+    st.session_state.ma_agents_create = False
 
 
 def load_cloud():
@@ -2203,6 +2329,17 @@ def load_cloud():
             st.session_state.ma_memories = (
                 db.list_memories()
             )
+
+            # Custom agents live in their own optional table. A missing
+            # migration must not prevent chats or memories from loading.
+            try:
+                st.session_state.ma_custom_agents = [
+                    {**agent, "_cloud_saved": True}
+                    for agent in db.list_agents()
+                ]
+                st.session_state.ma_agents_error = ""
+            except CloudHistoryError as agent_exc:
+                st.session_state.ma_agents_error = str(agent_exc)
 
             st.session_state.ma_db_error = ""
 
@@ -2254,6 +2391,7 @@ def start_chat():
 
     st.session_state.ma_chats.insert(0, c)
     st.session_state.ma_active = c["id"]
+    st.session_state.ma_agents_screen = False
 
 
 if not st.session_state.ma_chats:
@@ -2318,6 +2456,31 @@ with st.sidebar:
         use_container_width=True,
     )
 
+    # ================= AGENTS =================
+
+    st.divider()
+    st.caption("AGENTS")
+
+    if st.button("🤖  Explore agents", key="ma_open_agents_hub", use_container_width=True):
+        st.session_state.ma_agents_screen = True
+        st.session_state.ma_agents_create = False
+        st.rerun()
+
+    if st.button("＋  Create an agent", key="ma_create_agent_shortcut", use_container_width=True):
+        st.session_state.ma_agents_screen = True
+        st.session_state.ma_agents_create = True
+        st.rerun()
+
+    for sidebar_agent in get_agents():
+        if st.button(
+            sidebar_agent.get("avatar", "🤖") + "  " + sidebar_agent["name"],
+            key="ma_agent_sidebar_" + sidebar_agent["id"],
+            use_container_width=True,
+            help=sidebar_agent.get("description", ""),
+        ):
+            start_agent_chat(sidebar_agent)
+            st.rerun()
+
     # ================= SEARCH =================
 
     if st.button("🔎 Search chats"):
@@ -2351,14 +2514,20 @@ with st.sidebar:
         if search.casefold() not in searchable.casefold():
             continue
 
+        linked_agent = agent_for_chat(c)
         prefix = (
-            "✦  "
-            if c["id"] == st.session_state.ma_active
-            else "◦  "
+            (linked_agent.get("avatar", "🤖") + "  ")
+            if linked_agent
+            else ("✦  " if c["id"] == st.session_state.ma_active else "◦  ")
+        )
+        chat_label = (
+            linked_agent["name"] + " · " + c["title"][:22]
+            if linked_agent
+            else c["title"][:32]
         )
 
         if st.button(
-            prefix + c["title"][:32],
+            prefix + chat_label,
             key="chat_" + c["id"],
         ):
             st.session_state.ma_active = c["id"]
@@ -2637,6 +2806,16 @@ if st.session_state.ma_mobile_sidebar_open and not st.session_state.ma_voice_scr
             st.session_state.ma_gemini_token_error = ""
             st.session_state.ma_mobile_sidebar_open = False
             st.rerun()
+        if st.button("🤖   Explore agents", key="ma_mobile_agents"):
+            st.session_state.ma_agents_screen = True
+            st.session_state.ma_agents_create = False
+            st.session_state.ma_mobile_sidebar_open = False
+            st.rerun()
+        if st.button("＋   Create agent", key="ma_mobile_create_agent"):
+            st.session_state.ma_agents_screen = True
+            st.session_state.ma_agents_create = True
+            st.session_state.ma_mobile_sidebar_open = False
+            st.rerun()
         if st.button("🔎   Search chats", key="ma_mobile_search_toggle"):
             st.session_state.ma_mobile_search_enabled = not st.session_state.ma_mobile_search_enabled
         mobile_search = ""
@@ -2655,14 +2834,198 @@ if st.session_state.ma_mobile_sidebar_open and not st.session_state.ma_voice_scr
             )
             if mobile_search.casefold() not in searchable_text.casefold():
                 continue
-            marker = "●  " if mobile_chat["id"] == st.session_state.ma_active else "◦  "
+            linked_agent = agent_for_chat(mobile_chat)
+            marker = (linked_agent.get("avatar", "🤖") + "  ") if linked_agent else ("●  " if mobile_chat["id"] == st.session_state.ma_active else "◦  ")
+            mobile_title = (
+                linked_agent["name"] + " · " + mobile_chat["title"][:20]
+                if linked_agent
+                else (mobile_chat["title"][:34] or "New chat")
+            )
             if st.button(
-                marker + (mobile_chat["title"][:34] or "New chat"),
+                marker + mobile_title,
                 key="ma_mobile_chat_" + mobile_chat["id"],
             ):
                 st.session_state.ma_active = mobile_chat["id"]
                 st.session_state.ma_mobile_sidebar_open = False
                 st.rerun()
+
+
+# ===================== AGENTS HUB =====================
+
+if st.session_state.ma_agents_screen and not st.session_state.ma_voice_screen:
+    st.markdown(
+        '<div class="m-welcome" style="min-height:220px;padding:32px 24px">'
+        '<div class="m-welcome-eyebrow">MERGE AI · YOUR SPECIALIST TEAM</div>'
+        '<div class="m-welcome-title">Meet your <span>Agents.</span></div>'
+        '<div class="m-welcome-subtitle">Choose a specialist with its own identity, instructions and conversation threads — powered by Merge AI\'s multi-model engine.</div>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    top_left, top_right = st.columns([5, 1])
+    with top_left:
+        st.caption("SPECIALIST AGENTS")
+    with top_right:
+        if st.button("← Back to chat", key="ma_agents_back"):
+            st.session_state.ma_agents_screen = False
+            st.rerun()
+
+    if st.session_state.ma_agents_error:
+        st.info(
+            "Your built-in agents work now. To save custom agents across devices, "
+            "run the one-time Supabase migration: supabase_agents.sql. "
+            "Until then, custom agents stay in this browser session."
+        )
+        st.link_button(
+            "Open Supabase agents setup SQL",
+            "https://github.com/Khalid521164/Merge-Ai/blob/main/supabase_agents.sql",
+        )
+    elif not user:
+        st.caption("Custom agents can be created in this session. Sign in with Google and connect Supabase to sync them across devices.")
+
+    if st.button(
+        "＋  Create a new agent",
+        key="ma_agents_create_toggle",
+        type="primary",
+    ):
+        st.session_state.ma_agents_create = not st.session_state.ma_agents_create
+        st.rerun()
+
+    if st.session_state.ma_agents_create:
+        with st.container(border=True):
+            st.markdown("### Create your own agent")
+            st.caption("Give your agent a name, personality and clear instructions.")
+            with st.form("ma_create_agent_form", clear_on_submit=True):
+                create_col1, create_col2 = st.columns([1, 2])
+                with create_col1:
+                    new_agent_avatar = st.selectbox(
+                        "Avatar",
+                        ["🤖", "🔬", "💻", "🎓", "✍️", "📊", "🧠", "🧪"],
+                    )
+                with create_col2:
+                    new_agent_name = st.text_input(
+                        "Agent name",
+                        max_chars=48,
+                        placeholder="e.g. Science Project Coach",
+                    )
+                new_agent_description = st.text_input(
+                    "What does this agent do?",
+                    max_chars=180,
+                    placeholder="A short description shown in your agent list",
+                )
+                new_agent_instructions = st.text_area(
+                    "Agent instructions",
+                    max_chars=6000,
+                    height=150,
+                    placeholder="You are an expert assistant who helps me...",
+                )
+                save_agent_clicked = st.form_submit_button(
+                    "Create agent",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if save_agent_clicked:
+                clean_name = (new_agent_name or "").strip()
+                clean_description = (new_agent_description or "").strip()
+                clean_instructions = (new_agent_instructions or "").strip()
+                if len(clean_name) < 2 or not clean_description or len(clean_instructions) < 20:
+                    st.error("Add a name, a short description and at least 20 characters of instructions.")
+                else:
+                    new_agent = {
+                        "id": str(uuid.uuid4()),
+                        "name": clean_name[:48],
+                        "description": clean_description[:180],
+                        "instructions": clean_instructions[:6000],
+                        "avatar": new_agent_avatar,
+                        "_cloud_saved": False,
+                    }
+                    if user and db:
+                        try:
+                            db.save_agent(new_agent)
+                            new_agent["_cloud_saved"] = True
+                            st.session_state.ma_agents_error = ""
+                        except CloudHistoryError as agent_exc:
+                            st.session_state.ma_agents_error = str(agent_exc)
+                    st.session_state.ma_custom_agents.insert(0, new_agent)
+                    st.session_state.ma_agents_create = False
+                    st.rerun()
+
+    all_agents = get_agents()
+    st.markdown("### Built-in agents")
+    st.caption("Ready-to-use specialists. Each agent continues its own chat thread.")
+    for row_start in range(0, len(BUILTIN_AGENTS), 2):
+        agent_cols = st.columns(2)
+        for agent_col, agent_profile in zip(agent_cols, BUILTIN_AGENTS[row_start:row_start + 2]):
+            with agent_col:
+                with st.container(border=True):
+                    st.markdown("### " + agent_profile["avatar"] + " " + agent_profile["name"])
+                    st.write(agent_profile["description"])
+                    st.caption("Powered by Gemini + Groq + OpenRouter")
+                    continue_col, new_col = st.columns(2)
+                    with continue_col:
+                        if st.button(
+                            "Open agent",
+                            key="ma_agent_open_" + agent_profile["id"],
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            start_agent_chat(agent_profile)
+                            st.rerun()
+                    with new_col:
+                        if st.button(
+                            "New chat",
+                            key="ma_agent_new_" + agent_profile["id"],
+                            use_container_width=True,
+                        ):
+                            start_agent_chat(agent_profile, new_chat=True)
+                            st.rerun()
+
+    if st.session_state.ma_custom_agents:
+        st.markdown("### Your agents")
+        for row_start in range(0, len(st.session_state.ma_custom_agents), 2):
+            agent_cols = st.columns(2)
+            for agent_col, agent_profile in zip(agent_cols, st.session_state.ma_custom_agents[row_start:row_start + 2]):
+                with agent_col:
+                    with st.container(border=True):
+                        st.markdown("### " + agent_profile.get("avatar", "🤖") + " " + agent_profile["name"])
+                        st.write(agent_profile.get("description", "Your custom Merge AI agent."))
+                        st.caption("Custom agent · Uses your current Fast/Deep and Web Search settings")
+                        continue_col, new_col = st.columns(2)
+                        with continue_col:
+                            if st.button(
+                                "Open agent",
+                                key="ma_custom_agent_open_" + agent_profile["id"],
+                                use_container_width=True,
+                                type="primary",
+                            ):
+                                start_agent_chat(agent_profile)
+                                st.rerun()
+                        with new_col:
+                            if st.button(
+                                "New chat",
+                                key="ma_custom_agent_new_" + agent_profile["id"],
+                                use_container_width=True,
+                            ):
+                                start_agent_chat(agent_profile, new_chat=True)
+                                st.rerun()
+                        if st.button(
+                            "Delete agent",
+                            key="ma_custom_agent_delete_" + agent_profile["id"],
+                        ):
+                            try:
+                                if agent_profile.get("_cloud_saved") and db:
+                                    db.delete_agent(agent_profile["id"])
+                                st.session_state.ma_custom_agents = [
+                                    item for item in st.session_state.ma_custom_agents
+                                    if item["id"] != agent_profile["id"]
+                                ]
+                                st.rerun()
+                            except CloudHistoryError as agent_exc:
+                                st.error("Could not delete this cloud agent: " + str(agent_exc))
+
+    st.caption("Agents use Merge AI's existing model providers, answer mode and web-search setting. They do not run jobs in the background or control a separate computer yet.")
+    st.stop()
 
 
 # ===================== AI ENGINE =====================
@@ -2756,6 +3119,16 @@ def build_context(chat, question):
         "Never reveal secrets.",
     ]
 
+    active_agent = agent_for_chat(chat)
+    if active_agent:
+        lines.extend([
+            "\nACTIVE SPECIALIST AGENT:",
+            "You are acting as " + active_agent["name"] + " inside Merge AI.",
+            "Follow this agent's task instructions while preserving all safety rules "
+            "and being honest about available capabilities:",
+            active_agent.get("instructions", "")[:6000],
+        ])
+
     if memories:
         lines.append(
             "\nSaved user preferences:"
@@ -2777,6 +3150,8 @@ def build_context(chat, question):
                 "role",
                 "user"
             )
+            if role == "agent_context":
+                continue
 
             content = str(
                 m.get("content", "")
@@ -2806,6 +3181,7 @@ def ask_ai(chat, question, attachments=None):
     attachments = attachments or {}
     file_context = str(attachments.get("text") or "")
     images = attachments.get("images") or []
+    active_agent = agent_for_chat(chat)
 
     # Photos are analyzed by Gemini's vision-capable model.
     if images:
@@ -2818,11 +3194,15 @@ def ask_ai(chat, question, attachments=None):
         and len(question) <= 180
         and question.count("?") <= 1
     )
-    project_reply = answer_project_question(question) if single_question and not has_attachments else None
+    project_reply = (
+        answer_project_question(question)
+        if single_question and not has_attachments and not active_agent
+        else None
+    )
     if project_reply is not None:
         return project_reply, []
 
-    if single_question and not has_attachments and is_memory_question(question):
+    if single_question and not has_attachments and not active_agent and is_memory_question(question):
         if not user:
             return "Please sign in with Google to view your saved memories.", []
         saved = [m.get("content", "") for m in st.session_state.ma_memories if m.get("content")]
@@ -2830,7 +3210,7 @@ def ask_ai(chat, question, attachments=None):
             return "I don't have saved memories for this account yet. Open **🧠 My memory** to add or approve some.", []
         return "Here is what you've approved for me to remember:\n\n" + "\n".join("- " + item for item in saved), []
 
-    if single_question and not has_attachments and is_forget_request(question):
+    if single_question and not has_attachments and not active_agent and is_forget_request(question):
         return "To remove a saved memory, open **🧠 My memory** in the sidebar and click **Forget this**.", []
 
     prompt = build_context(chat, question)
@@ -2980,11 +3360,40 @@ st.markdown(
 )
 
 chat = active_chat()
+active_agent = agent_for_chat(chat)
+visible_chat_messages = [
+    message for message in chat["messages"]
+    if message.get("role") != "agent_context"
+]
 
 
 # ===================== WELCOME =====================
 
-if not chat["messages"]:
+if not visible_chat_messages and active_agent:
+    st.markdown(
+        '<div class="m-welcome" style="min-height:280px;padding:38px 24px">'
+        '<div class="m-welcome-eyebrow">MERGE AI · SPECIALIST AGENT</div>'
+        '<div class="m-logo" style="width:58px;height:58px;font-size:28px">'
+        + html.escape(active_agent.get("avatar", "🤖"))
+        + '</div>'
+        '<div class="m-welcome-title">'
+        + html.escape(active_agent["name"])
+        + '<br><span>Your specialist is ready.</span></div>'
+        '<div class="m-welcome-subtitle">'
+        + html.escape(active_agent.get("description", "A specialist assistant powered by Merge AI."))
+        + '</div></div>',
+        unsafe_allow_html=True,
+    )
+    st.caption("Try asking:")
+    for suggestion_index, suggestion in enumerate(active_agent.get("suggestions", [])):
+        if st.button(
+            "✦  " + suggestion,
+            key="ma_agent_suggestion_" + active_agent["id"] + "_" + str(suggestion_index),
+        ):
+            st.session_state.ma_agent_prefill = suggestion
+            st.rerun()
+
+elif not visible_chat_messages:
 
     st.markdown(
         '<div class="m-welcome">'
@@ -3016,6 +3425,9 @@ if not chat["messages"]:
 # ===================== MESSAGES =====================
 
 for i, msg in enumerate(chat["messages"]):
+
+    if msg.get("role") == "agent_context":
+        continue
 
     content = str(
         msg.get("content", "")
@@ -3139,9 +3551,16 @@ with st.container(key="ma_chat_composer"):
         with st.form("ma_chat_composer_form", clear_on_submit=True, border=False):
             input_col, send_col = st.columns([11, 0.85], vertical_alignment="center")
             with input_col:
+                agent_placeholder = (
+                    "Message " + active_agent["name"] + "…"
+                    if active_agent
+                    else "Ask Merge AI anything…"
+                )
                 typed_question = st.text_input(
-                    "Message", placeholder="Ask Merge AI anything…",
-                    label_visibility="collapsed", key="ma_composer_text",
+                    "Message",
+                    placeholder=agent_placeholder,
+                    label_visibility="collapsed",
+                    key="ma_composer_text",
                 )
             with send_col:
                 send_clicked = st.form_submit_button(

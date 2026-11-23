@@ -143,6 +143,64 @@ class CloudHistory:
             'content': content,
         })
 
+    def list_agents(self):
+        rows = self._call('GET', 'ma2_agents', {
+            'owner_sub': 'eq.' + self.owner,
+            'select': 'id,name,description,instructions,avatar,created_at,updated_at',
+            'order': 'updated_at.desc', 'limit': '100',
+        })
+        if not isinstance(rows, list):
+            raise CloudHistoryError('Unexpected agent response.')
+        return rows
+
+    def save_agent(self, agent):
+        if not isinstance(agent, dict):
+            raise CloudHistoryError('Invalid agent.')
+        try:
+            agent_id = str(uuid.UUID(str(agent['id'])))
+        except (KeyError, ValueError, TypeError, AttributeError):
+            raise CloudHistoryError('Invalid agent ID.') from None
+
+        name = str(agent.get('name') or '').strip()
+        description = str(agent.get('description') or '').strip()
+        instructions = str(agent.get('instructions') or '').strip()
+        avatar = str(agent.get('avatar') or '🤖').strip()[:8]
+        if not (2 <= len(name) <= 48) or not description or len(description) > 180:
+            raise CloudHistoryError('Agent name or description is invalid.')
+        if not (20 <= len(instructions) <= 6000):
+            raise CloudHistoryError('Agent instructions must contain 20–6000 characters.')
+
+        record = {
+            'name': name,
+            'description': description,
+            'instructions': instructions,
+            'avatar': avatar or '🤖',
+            'updated_at': datetime.now(timezone.utc).isoformat(),
+        }
+        found = self._call('GET', 'ma2_agents', {
+            'id': 'eq.' + agent_id, 'owner_sub': 'eq.' + self.owner,
+            'select': 'id', 'limit': '1',
+        })
+        if found:
+            self._call('PATCH', 'ma2_agents', {
+                'id': 'eq.' + agent_id, 'owner_sub': 'eq.' + self.owner,
+            }, record)
+        else:
+            self._call('POST', 'ma2_agents', data={
+                'id': agent_id, 'owner_sub': self.owner,
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                **record,
+            })
+
+    def delete_agent(self, agent_id):
+        try:
+            agent_id = str(uuid.UUID(str(agent_id)))
+        except (ValueError, TypeError, AttributeError):
+            raise CloudHistoryError('Invalid agent ID.') from None
+        self._call('DELETE', 'ma2_agents', {
+            'id': 'eq.' + agent_id, 'owner_sub': 'eq.' + self.owner,
+        })
+
     def delete_memory(self, memory_id):
         try:
             memory_id = str(uuid.UUID(str(memory_id)))
