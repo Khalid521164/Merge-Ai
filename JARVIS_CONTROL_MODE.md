@@ -4,7 +4,7 @@
 
 - A **Control mode** entry in the app sidebar and mobile navigation.
 - A Start Control screen that asks whether to use a phone or this computer.
-- **Phone pairing:** the desktop app creates a random, 256-bit-style URL-safe token and a QR code that expires after 10 minutes. The token is stored only as a SHA-256 hash in the shared chat metadata. The phone must sign in with the same Google account and Supabase-backed history enabled.
+- **Phone pairing:** the desktop app creates a cryptographically random 256-bit URL-safe token and a QR code that expires after 10 minutes. The token is stored only as a SHA-256 hash in the shared chat metadata. The phone must sign in with the same Google account and Supabase-backed history enabled.
 - The phone opens the same Jarvis conversation and can use the existing Gemini Live voice experience. The desktop can refresh that shared conversation to see the messages.
 - **PC mode:** opens a dedicated Jarvis command chat that can coordinate the existing Merge AI features and Agent Team.
 

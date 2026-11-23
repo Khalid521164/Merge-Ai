@@ -2262,6 +2262,29 @@ def start_control_chat(mode="pc", pair_token=""):
     return chat
 
 
+def create_phone_pairing():
+    """Create a new shared Jarvis chat and a short-lived QR pairing URL."""
+    if not user or not db:
+        return None
+    pair_token = secrets.token_urlsafe(32)
+    phone_chat = start_control_chat("phone", pair_token=pair_token)
+    persist(phone_chat)
+    pair_query = urlencode({
+        "control_chat": phone_chat["id"],
+        "control_token": pair_token,
+    })
+    st.session_state.ma_control_pair_token = pair_token
+    st.session_state.ma_control_pair_chat_id = phone_chat["id"]
+    st.session_state.ma_control_pair_url = (
+        "https://mergeai.streamlit.app/?" + pair_query
+    )
+    st.session_state.ma_control_pair_expires = time.time() + 600
+    st.session_state.ma_control_target = "phone"
+    st.session_state.ma_control_stage = "phone"
+    st.session_state.ma_control_pair_error = ""
+    return phone_chat
+
+
 def start_agent_chat(agent, new_chat=False):
     """Open the latest thread for an agent, or create a separate new thread."""
     agent_id = str(agent.get("id", ""))
@@ -3129,22 +3152,7 @@ if st.session_state.ma_control_screen and not st.session_state.ma_voice_screen:
                             "Sign in with Google and connect Supabase on this computer before creating a phone pairing code."
                         )
                     else:
-                        pair_token = secrets.token_urlsafe(32)
-                        phone_chat = start_control_chat("phone", pair_token=pair_token)
-                        persist(phone_chat)
-                        pair_query = urlencode({
-                            "control_chat": phone_chat["id"],
-                            "control_token": pair_token,
-                        })
-                        st.session_state.ma_control_pair_token = pair_token
-                        st.session_state.ma_control_pair_chat_id = phone_chat["id"]
-                        st.session_state.ma_control_pair_url = (
-                            "https://mergeai.streamlit.app/?" + pair_query
-                        )
-                        st.session_state.ma_control_pair_expires = time.time() + 600
-                        st.session_state.ma_control_target = "phone"
-                        st.session_state.ma_control_stage = "phone"
-                        st.session_state.ma_control_pair_error = ""
+                        create_phone_pairing()
                     st.rerun()
         with pc_col:
             with st.container(border=True):
@@ -3164,7 +3172,18 @@ if st.session_state.ma_control_screen and not st.session_state.ma_voice_screen:
             st.warning(st.session_state.ma_control_pair_error)
             if not user and st.button("Sign in with Google", key="ma_control_phone_login"):
                 login_with_google()
-        elif st.session_state.ma_control_pair_url and st.session_state.ma_control_pair_chat_id:
+        if (
+            (not st.session_state.ma_control_pair_url or not st.session_state.ma_control_pair_chat_id)
+            and user
+            and db
+        ):
+            st.caption("You're signed in and cloud history is ready. Create your temporary pairing code.")
+            if st.button("Create secure QR code", key="ma_control_create_qr_after_login", type="primary"):
+                create_phone_pairing()
+                st.rerun()
+        elif user and not db and not st.session_state.ma_control_pair_url:
+            st.info("Connect Supabase cloud history to create a phone pairing code.")
+        if st.session_state.ma_control_pair_url and st.session_state.ma_control_pair_chat_id:
             remaining = max(
                 0,
                 int(st.session_state.ma_control_pair_expires - time.time()),
