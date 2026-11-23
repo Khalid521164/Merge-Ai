@@ -225,7 +225,12 @@ def validate_and_execute(action: str, args: dict) -> str:
     width, height = screen_size()
 
     if action in ("click", "move_mouse"):
-        x, y = int(args.get("x", -1)), int(args.get("y", -1))
+        position = str(args.get("position", "")).lower()
+        if position in {"top-left", "top-right", "bottom-left", "bottom-right", "center"}:
+            positions = {"top-left": (8, 8), "top-right": (width - 8, 8), "bottom-left": (8, height - 8), "bottom-right": (width - 8, height - 8), "center": (width // 2, height // 2)}
+            x, y = positions[position]
+        else:
+            x, y = int(args.get("x", -1)), int(args.get("y", -1))
         if x < 0 or y < 0 or x >= width or y >= height:
             raise ValueError(f"Coordinates must be within the {width}×{height} screen.")
         if action == "click":

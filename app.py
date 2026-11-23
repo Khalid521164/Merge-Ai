@@ -1,6 +1,7 @@
 
 """Merge AI 2.0 - Chat UI, cloud history, memory and voice."""
 
+import base64
 import hashlib
 import html
 import hmac
@@ -2285,6 +2286,123 @@ def create_phone_pairing():
     return phone_chat
 
 
+def create_desktop_bridge_pairing(chat):
+    """Create a short-lived pairing file; only its token hash is stored in Supabase."""
+    if not user or not db:
+        raise CloudHistoryError("Sign in with Google and connect Supabase first.")
+    supabase_url = secret("SUPABASE_URL")
+    anon_key = secret("SUPABASE_ANON_KEY")
+    if not supabase_url or not anon_key:
+        raise CloudHistoryError("Add SUPABASE_URL and SUPABASE_ANON_KEY to Streamlit Cloud Secrets.")
+    metadata = control_context_for_chat(chat)
+    if not metadata:
+        raise CloudHistoryError("Open a Jarvis Control Mode conversation first.")
+    session_id = str(uuid.uuid4())
+    device_token = secrets.token_urlsafe(48)
+    now = time.time()
+    db.create_control_device({
+        "session_id": session_id,
+        "chat_id": chat["id"],
+        "token_hash": hashlib.sha256(device_token.encode("utf-8")).hexdigest(),
+        "pair_expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 600)),
+        "expires_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 8 * 60 * 60)),
+    })
+    metadata["desktop_session_id"] = session_id
+    metadata["desktop_pair_expires_at"] = now + 600
+    st.session_state.ma_bridge_session_id = session_id
+    st.session_state.ma_bridge_pair_file = json.dumps({
+        "supabase_url": supabase_url,
+        "supabase_anon_key": anon_key,
+        "session_id": session_id,
+        "device_token": device_token,
+    }, indent=2)
+    st.session_state.ma_bridge_pair_filename = "merge-ai-desktop-pairing.json"
+    st.session_state.ma_bridge_pair_error = ""
+    persist(chat)
+    return session_id
+
+
+def plan_desktop_action(question):
+    """Ask the model for one allowlisted action; validate before showing a preview."""
+    prompt = (
+        "Convert the user's request into exactly one desktop action JSON object. "
+        "Return only JSON with keys action and arguments. If no desktop action is clearly "
+        "requested, return action='no_action' and arguments={}. Never infer destructive "
+        "or sensitive intent. Allowed actions: screenshot {}; open_app {app} where app "
+        "is notepad, calculator, paint, explorer, chrome, edge; open_url {url} using "
+        "http or https; click {x,y} or {position}; move_mouse {x,y} or {position}; "
+        "type_text {text} up to 3000 characters; hotkey {keys} using only approved "
+        "shortcuts ctrl+a/c/v/x/s/z/y/f/w/t, alt+tab/f4, win+d/e, or one navigation "
+        "key enter, esc, tab, space, backspace, delete, up, down, left, right, home, "
+        "end, pageup, pagedown; scroll {direction,ticks} direction up/down, ticks 1–15. "
+        "Never output shell commands, PowerShell, scripts, file deletion, arbitrary "
+        "executables, passwords, or hidden actions. User request: "
+        + str(question)[:1800]
+    )
+    result = engine().ask(prompt, fast=True, web_search=False)
+    raw, _ = extract(result)
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        raw = raw[4:] if raw.lower().startswith("json") else raw
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        parsed = json.loads(raw[start:end + 1])
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    action = str(parsed.get("action") or "no_action").strip().lower()
+    args = parsed.get("arguments") or {}
+    if action == "no_action" or not isinstance(args, dict):
+        return None
+    allowed_apps = {"notepad", "calculator", "paint", "explorer", "chrome", "edge"}
+    if action == "open_app":
+        app_name = str(args.get("app") or "").lower()
+        if app_name not in allowed_apps: return None
+        args = {"app": app_name}
+    elif action == "open_url":
+        from urllib.parse import urlsplit
+        url = str(args.get("url") or "").strip()
+        parsed_url = urlsplit(url)
+        if parsed_url.scheme not in ("http", "https") or not parsed_url.hostname or parsed_url.username or parsed_url.password: return None
+        args = {"url": url[:2000]}
+    elif action in ("click", "move_mouse"):
+        position = str(args.get("position") or "").lower()
+        if position in {"top-left", "top-right", "bottom-left", "bottom-right", "center"}:
+            args = {"position": position}
+        else:
+            try: x, y = int(args.get("x")), int(args.get("y"))
+            except (TypeError, ValueError): return None
+            if not (0 <= x <= 10000 and 0 <= y <= 10000): return None
+            args = {"x": x, "y": y}
+    elif action == "type_text":
+        text_value = str(args.get("text") or "")
+        if not (1 <= len(text_value) <= 3000): return None
+        args = {"text": text_value}
+    elif action == "hotkey":
+        keys = args.get("keys")
+        hotkeys = {("ctrl","a"),("ctrl","c"),("ctrl","v"),("ctrl","x"),("ctrl","s"),("ctrl","z"),("ctrl","y"),("ctrl","f"),("ctrl","w"),("ctrl","t"),("alt","tab"),("alt","f4"),("win","d"),("win","e")}
+        singles = {"enter","esc","tab","space","backspace","delete","up","down","left","right","home","end","pageup","pagedown"}
+        if not isinstance(keys, list): return None
+        kt = tuple(str(k).lower() for k in keys)
+        if kt not in hotkeys and not (len(kt)==1 and kt[0] in singles): return None
+        args = {"keys": list(kt)}
+    elif action == "scroll":
+        direction = str(args.get("direction") or "").lower()
+        try: ticks = int(args.get("ticks", 3))
+        except (TypeError, ValueError): return None
+        if direction not in ("up","down") or not (1 <= ticks <= 15): return None
+        args = {"direction": direction, "ticks": ticks}
+    elif action == "screenshot":
+        args = {}
+    else:
+        return None
+    return {"action": action, "arguments": args}
+
+
 def start_agent_chat(agent, new_chat=False):
     """Open the latest thread for an agent, or create a separate new thread."""
     agent_id = str(agent.get("id", ""))
@@ -2374,6 +2492,10 @@ defaults = {
     "ma_control_pair_expires": 0,
     "ma_control_pair_error": "",
     "ma_control_phone_mode": False,
+    "ma_bridge_session_id": "",
+    "ma_bridge_pair_file": "",
+    "ma_bridge_pair_filename": "",
+    "ma_bridge_pair_error": "",
 }
 
 for key, value in defaults.items():
@@ -3204,8 +3326,26 @@ if st.session_state.ma_control_screen and not st.session_state.ma_voice_screen:
                     st.caption("The pairing code is random, temporary and stored as a hash in your chat metadata.")
                 st.info(
                     "Your phone will join this shared Jarvis conversation and can talk to Jarvis live. "
-                    "This first release syncs the conversation; Windows mouse, keyboard and other-app control still needs the separate desktop companion."
+                    "Pair the Windows Desktop Bridge below to enable approved mouse, keyboard, app and screenshot actions."
                 )
+            if user and db:
+                if st.button("🔐 Create Windows desktop pairing file", key="ma_phone_create_desktop_pair"):
+                    try:
+                        pair_chat = next(item for item in st.session_state.ma_chats if item.get("id") == st.session_state.ma_control_pair_chat_id)
+                        create_desktop_bridge_pairing(pair_chat)
+                        st.rerun()
+                    except Exception as exc:
+                        st.session_state.ma_bridge_pair_error = str(exc)
+                if st.session_state.ma_bridge_pair_file:
+                    st.download_button(
+                        "⬇ Download Windows pairing file",
+                        data=st.session_state.ma_bridge_pair_file,
+                        file_name=st.session_state.ma_bridge_pair_filename,
+                        mime="application/json",
+                        key="ma_phone_download_bridge_pair",
+                    )
+                if st.session_state.ma_bridge_pair_error:
+                    st.error(st.session_state.ma_bridge_pair_error)
             if st.button("Generate a new QR code", key="ma_control_rotate_qr"):
                 pair_token = secrets.token_urlsafe(32)
                 phone_chat = next(
@@ -3668,9 +3808,9 @@ def build_context(chat, question):
             "You are Jarvis, the user's command assistant inside Merge AI.",
             "Use a calm, capable, concise voice. Understand natural-language requests and help plan tasks.",
             "You can use only the AI, conversation and agent features actually available inside this app.",
-            "You do not currently have a desktop-control bridge, mouse, keyboard, operating-system or external-app execution tool.",
-            "Never claim that you clicked, opened, typed into, changed or controlled anything on the computer or another device.",
-            "When a request needs unavailable PC access, explain the limitation and give a safe next step.",
+            "A permissioned desktop bridge may be connected to this Jarvis chat. Only propose actions supported by its allowlist, and wait for the user to confirm each action in the app before it is queued.",
+            "Never claim an action succeeded until the connected desktop bridge reports completion.",
+            "Never request or output arbitrary shell commands, PowerShell, scripts, file deletion, credential access, or hidden actions.",
             "For tasks that benefit from specialists, recommend or use the Agent Team workflow where available.",
         ])
     if active_agent:
@@ -4107,7 +4247,7 @@ active_team = team_for_chat(chat)
 active_control = control_context_for_chat(chat)
 visible_chat_messages = [
     message for message in chat["messages"]
-    if message.get("role") not in ("agent_context", "team_context")
+    if message.get("role") not in ("agent_context", "team_context", "control_context")
 ]
 if active_control:
     control_label = "phone voice session" if active_control.get("mode") == "phone" else "this computer"
@@ -4115,9 +4255,54 @@ if active_control:
     if active_control.get("mode") == "pc":
         st.info(
             "Jarvis can interpret your commands and coordinate Merge AI agents in this chat. "
-            "Direct Windows mouse, keyboard and other-app actions are not enabled until the desktop companion is installed."
+            "Connect the Windows Desktop Bridge below to enable approved computer actions."
         )
-    elif db and st.button("↻ Refresh shared phone conversation", key="ma_refresh_control_chat"):
+    if not active_control.get("desktop_session_id") and user and db:
+        with st.expander("🖥️ Connect this Windows PC", expanded=True):
+            st.write("Download a one-time pairing file, then load it in Merge AI Desktop Bridge on this computer.")
+            if st.button("Create desktop pairing file", key="ma_create_desktop_pair_file"):
+                try:
+                    create_desktop_bridge_pairing(chat)
+                    st.rerun()
+                except Exception as exc:
+                    st.error(str(exc))
+            if st.session_state.ma_bridge_pair_file:
+                st.download_button("⬇ Download pairing file", data=st.session_state.ma_bridge_pair_file, file_name=st.session_state.ma_bridge_pair_filename, mime="application/json", key="ma_download_desktop_pair_file")
+    elif active_control.get("desktop_session_id") and db:
+        bridge_session_id = active_control["desktop_session_id"]
+        control_col1, control_col2 = st.columns([1, 1])
+        with control_col1:
+            if st.button("↻ Refresh desktop activity", key="ma_refresh_bridge_activity"): st.rerun()
+        with control_col2:
+            if st.button("■ Stop desktop control", key="ma_stop_bridge_session"):
+                try:
+                    db.end_control_device(bridge_session_id)
+                    st.success("Desktop control stopped.")
+                    st.rerun()
+                except CloudHistoryError as exc:
+                    st.error("Could not stop the desktop session: " + str(exc))
+        try:
+            bridge_device = db.get_control_device(bridge_session_id)
+            if bridge_device and bridge_device.get("status") == "active":
+                st.success("Desktop Bridge connected · last heartbeat " + str(bridge_device.get("last_seen_at") or "recently"))
+            else:
+                st.warning("Desktop Bridge is not connected.")
+            bridge_commands = db.list_control_commands(bridge_session_id, limit=8)
+            if bridge_commands:
+                with st.expander("🖥️ Recent desktop actions", expanded=True):
+                    for bridge_command in reversed(bridge_commands):
+                        st.caption(str(bridge_command.get("action", "")).replace("_", " ").title() + " · " + str(bridge_command.get("status", "unknown")))
+                        result_text = str(bridge_command.get("result_text") or "")
+                        if result_text.startswith("SCREENSHOT_JPEG_BASE64:"):
+                            try:
+                                st.image(base64.b64decode(result_text.split(":", 1)[1], validate=True), caption="Desktop screenshot")
+                            except Exception:
+                                st.caption("Screenshot result could not be displayed.")
+                        elif result_text:
+                            st.write(result_text[:500])
+        except CloudHistoryError as exc:
+            st.caption("Desktop activity is temporarily unavailable: " + str(exc))
+    if active_control.get("mode") == "phone" and db and st.button("↻ Refresh shared phone conversation", key="ma_refresh_control_chat"):
         try:
             refreshed = next(
                 (row for row in db.list_chats() if row.get("id") == chat.get("id")),
@@ -4250,6 +4435,37 @@ for i, msg in enumerate(chat["messages"]):
 
         st.markdown(content)
 
+        desktop_proposal = msg.get("desktop_action_proposal")
+        if desktop_proposal and active_control:
+            st.warning("Desktop action preview: " + str(desktop_proposal.get("action", "")).replace("_", " ").title() + " · " + json.dumps(desktop_proposal.get("arguments", {}), ensure_ascii=False))
+            proposal_id = str(msg.get("proposal_id") or "")
+            proposal_status = str(msg.get("proposal_status") or "pending")
+            if proposal_status == "pending":
+                confirm_col, cancel_col = st.columns(2)
+                with confirm_col:
+                    if st.button("Approve and run", key="ma_approve_desktop_" + proposal_id, type="primary"):
+                        try:
+                            command_id = db.create_control_command({
+                                "session_id": str(active_control.get("desktop_session_id") or ""),
+                                "action": desktop_proposal["action"],
+                                "arguments": desktop_proposal["arguments"],
+                            })
+                            msg["proposal_status"] = "queued"
+                            msg["desktop_command_id"] = command_id
+                            msg["content"] = content + "\n\n**Approved.** Sent to your connected Windows PC."
+                            persist(chat)
+                            st.rerun()
+                        except Exception as exc:
+                            st.error("Could not queue the action: " + str(exc))
+                with cancel_col:
+                    if st.button("Cancel action", key="ma_cancel_desktop_" + proposal_id):
+                        msg["proposal_status"] = "cancelled"
+                        persist(chat)
+                        st.rerun()
+            elif proposal_status == "queued":
+                st.caption("Approved and queued · waiting for the Windows companion")
+            elif proposal_status == "cancelled":
+                st.caption("Action cancelled.")
         team_workflow = msg.get("team_workflow") or []
         if team_workflow:
             with st.expander("🤝 How your agent team worked"):
@@ -4635,8 +4851,24 @@ if question and question.strip():
 
     # Build context BEFORE appending the question.
     team_workflow = []
+    desktop_proposal = None
+    control_chat_context = control_context_for_chat(chat)
     try:
-        if team_for_chat(chat):
+        if control_chat_context and not db:
+            answer, sources = ("Sign in with Google and connect Supabase before controlling a Windows PC.", [])
+        elif control_chat_context and not control_chat_context.get("desktop_session_id"):
+            answer, sources = ("Connect the Windows Desktop Bridge first. Open **Connect this Windows PC**, download the pairing file, and load it in the companion app.", [])
+        elif control_chat_context:
+            desktop_status = db.get_control_device(control_chat_context["desktop_session_id"])
+            if not desktop_status or desktop_status.get("status") != "active":
+                answer, sources = ("Your Windows Desktop Bridge is not connected. Open the companion, load the pairing file, and press **Start secure connection**.", [])
+            else:
+                desktop_proposal = plan_desktop_action(question)
+                if desktop_proposal:
+                    answer, sources = ("I prepared a desktop action. Review the details below and approve it before I send anything to your PC.", [])
+                else:
+                    answer, sources = ask_ai(chat, question, attachments=attachment_payload)
+        elif team_for_chat(chat):
             with st.status("🤝 Your agent team is collaborating…", expanded=True) as team_status:
                 answer, sources, team_workflow = ask_agent_team(
                     chat,
@@ -4680,6 +4912,10 @@ if question and question.strip():
     }
     if team_workflow:
         assistant_message["team_workflow"] = team_workflow
+    if desktop_proposal:
+        assistant_message["desktop_action_proposal"] = desktop_proposal
+        assistant_message["proposal_id"] = str(uuid.uuid4())
+        assistant_message["proposal_status"] = "pending"
     chat["messages"].append(assistant_message)
 
     # Automatic chat title.

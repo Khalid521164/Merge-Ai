@@ -42,7 +42,7 @@ Pairing config expires after 10 minutes. The active desktop-control session expi
 - Capture the active monitor (JPEG screenshot).
 - Open allowlisted apps: Notepad, Calculator, Paint, File Explorer, Chrome, and Edge.
 - Open ordinary HTTP/HTTPS web addresses.
-- Move and click at screen coordinates.
+- Move and click at screen coordinates or common screen positions (center/corners).
 - Type up to 3,000 characters using the clipboard.
 - Press a short allowlisted keyboard shortcut or navigation key.
 - Scroll up or down up to 15 steps.
