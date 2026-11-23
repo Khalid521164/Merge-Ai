@@ -24,3 +24,17 @@ alter table public.ma2_agents enable row level security;
 -- Only the server-side service role may access custom agent profiles.
 revoke all on table public.ma2_agents from anon, authenticated;
 grant all on table public.ma2_agents to service_role;
+
+-- Per-Google-account names for built-in and custom specialist agents.
+-- Rows are accessed by the server with SUPABASE_SECRET_KEY only.
+create table if not exists public.ma2_agent_aliases (
+    owner_sub text not null,
+    agent_id text not null check (char_length(agent_id) between 1 and 80),
+    display_name text not null check (char_length(trim(display_name)) between 1 and 40),
+    updated_at timestamptz not null default now(),
+    primary key (owner_sub, agent_id)
+);
+
+alter table public.ma2_agent_aliases enable row level security;
+revoke all on table public.ma2_agent_aliases from anon, authenticated;
+grant all on table public.ma2_agent_aliases to service_role;

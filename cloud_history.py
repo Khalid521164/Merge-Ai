@@ -41,7 +41,7 @@ class CloudHistory:
         self.owner = owner
         self.opener = build_opener(_NoRedirect())
 
-    def _call(self, method, table, filters=None, data=None):
+    def _call(self, method, table, filters=None, data=None, prefer=None):
         url = self.base + table
         if filters:
             url += '?' + urlencode(filters)
@@ -49,7 +49,7 @@ class CloudHistory:
             'apikey': self.key,
             'Accept': 'application/json',
             'Content-Type': 'application/json',
-            'Prefer': 'return=representation' if method == 'GET' else 'return=minimal',
+            'Prefer': prefer or ('return=representation' if method == 'GET' else 'return=minimal'),
             'User-Agent': 'MergeAI-Server/2.0',
         }
         if not self.key.startswith('sb_secret_'):
@@ -152,6 +152,53 @@ class CloudHistory:
         if not isinstance(rows, list):
             raise CloudHistoryError('Unexpected agent response.')
         return rows
+
+    def list_agent_aliases(self):
+        rows = self._call('GET', 'ma2_agent_aliases', {
+            'owner_sub': 'eq.' + self.owner,
+            'select': 'agent_id,display_name',
+            'order': 'updated_at.desc',
+            'limit': '100',
+        })
+        if not isinstance(rows, list):
+            raise CloudHistoryError('Unexpected agent-name response.')
+        return {
+            str(row['agent_id']): str(row['display_name'])
+            for row in rows
+            if row.get('agent_id') and row.get('display_name')
+        }
+
+    def save_agent_aliases(self, aliases):
+        if not isinstance(aliases, dict) or len(aliases) > 100:
+            raise CloudHistoryError('Invalid agent-name list.')
+        now = datetime.now(timezone.utc).isoformat()
+        records = []
+        for agent_id, display_name in aliases.items():
+            agent_id = str(agent_id or '').strip()
+            display_name = str(display_name or '').strip()
+            if (
+                not agent_id
+                or len(agent_id) > 80
+                or not all(ch.isalnum() or ch in '-_' for ch in agent_id)
+            ):
+                raise CloudHistoryError('Invalid agent ID.')
+            if not (1 <= len(display_name) <= 40):
+                raise CloudHistoryError('Agent display names must be 1–40 characters.')
+            records.append({
+                'owner_sub': self.owner,
+                'agent_id': agent_id,
+                'display_name': display_name,
+                'updated_at': now,
+            })
+        if not records:
+            return
+        self._call(
+            'POST',
+            'ma2_agent_aliases',
+            filters={'on_conflict': 'owner_sub,agent_id'},
+            data=records,
+            prefer='resolution=merge-duplicates,return=minimal',
+        )
 
     def save_agent(self, agent):
         if not isinstance(agent, dict):

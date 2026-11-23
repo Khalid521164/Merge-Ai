@@ -222,6 +222,24 @@ def authenticated_user():
 user = authenticated_user()
 
 
+def login_with_google():
+    """Start Google OIDC login and show setup guidance if credentials are missing."""
+    try:
+        st.login("google")
+    except Exception:
+        try:
+            st.login()
+        except Exception:
+            st.error(
+                "Google sign-in is not configured yet. Add the Google OIDC "
+                "settings in Streamlit Community Cloud → App settings → Secrets."
+            )
+            st.markdown(
+                "[Open the Merge AI Google sign-in setup guide]"
+                "(https://github.com/Khalid521164/Merge-Ai/blob/main/GOOGLE_SIGNIN_SETUP.md)"
+            )
+
+
 # ===================== STYLES =====================
 
 st.markdown("""
@@ -2145,9 +2163,18 @@ BUILTIN_AGENTS = [
 
 
 def get_agents():
-    """Return the built-in specialist roster plus this account's custom agents."""
+    """Return agents with this Google account's chosen display names."""
+    aliases = st.session_state.get("ma_agent_aliases", {})
     custom = st.session_state.get("ma_custom_agents", [])
-    return [dict(agent) for agent in BUILTIN_AGENTS] + [dict(agent) for agent in custom]
+    roster = []
+    for source in [*BUILTIN_AGENTS, *custom]:
+        agent = dict(source)
+        role_name = str(agent.get("role_name") or agent.get("name") or "Agent")
+        agent["role_name"] = role_name
+        display_name = str(aliases.get(agent["id"]) or "").strip()
+        agent["name"] = display_name or role_name
+        roster.append(agent)
+    return roster
 
 
 def agent_for_chat(chat):
@@ -2233,6 +2260,8 @@ defaults = {
     "ma_db_error": "",
     "ma_generated_images": {},
     "ma_custom_agents": [],
+    "ma_agent_aliases": {},
+    "ma_aliases_error": "",
     "ma_agents_error": "",
     "ma_agents_screen": False,
     "ma_agents_create": False,
@@ -2296,6 +2325,8 @@ if st.session_state.ma_owner != owner:
     st.session_state.ma_gemini_token_error = ""
     st.session_state.ma_generated_images = {}
     st.session_state.ma_custom_agents = []
+    st.session_state.ma_agent_aliases = {}
+    st.session_state.ma_aliases_error = ""
     st.session_state.ma_agents_error = ""
     st.session_state.ma_agents_screen = False
     st.session_state.ma_agents_create = False
@@ -2340,6 +2371,12 @@ def load_cloud():
                 st.session_state.ma_agents_error = ""
             except CloudHistoryError as agent_exc:
                 st.session_state.ma_agents_error = str(agent_exc)
+
+            try:
+                st.session_state.ma_agent_aliases = db.list_agent_aliases()
+                st.session_state.ma_aliases_error = ""
+            except CloudHistoryError as alias_exc:
+                st.session_state.ma_aliases_error = str(alias_exc)
 
             st.session_state.ma_db_error = ""
 
@@ -2425,15 +2462,14 @@ with st.sidebar:
 
     else:
         st.info(
-            "Sign in with Google to save chats "
-            "across devices."
+            "Sign in with Google to sync chats, custom agents "
+            "and personalized agent names across devices."
         )
-
-        if st.button("Sign in with Google"):
-            try:
-                st.login("google")
-            except Exception:
-                st.login()
+        if st.button("Sign in with Google", key="ma_sidebar_google_login"):
+            login_with_google()
+        st.caption(
+            "[Google sign-in setup](https://github.com/Khalid521164/Merge-Ai/blob/main/GOOGLE_SIGNIN_SETUP.md)"
+        )
 
     # ================= NEW CHAT =================
 
@@ -2792,6 +2828,10 @@ if st.session_state.ma_mobile_sidebar_open and not st.session_state.ma_voice_scr
         )
         if user:
             st.caption("Signed in: " + str(user.get("email", "Google account")))
+        else:
+            st.info("Sign in with Google to sync agents and chat history.")
+            if st.button("Continue with Google", key="ma_mobile_google_login"):
+                login_with_google()
         if st.button("✕   Close menu", key="ma_mobile_close_sidebar"):
             st.session_state.ma_mobile_sidebar_open = False
             st.rerun()
@@ -2872,11 +2912,31 @@ if st.session_state.ma_agents_screen and not st.session_state.ma_voice_screen:
             st.session_state.ma_agents_screen = False
             st.rerun()
 
-    if st.session_state.ma_agents_error:
+    if user:
+        st.success(
+            "Signed in as " + str(user.get("email", "Google account"))
+            + ". Your agent names and custom agents are linked to this account."
+        )
+        if not db:
+            st.warning(
+                "Google sign-in is active, but Supabase storage is not connected. "
+                "Add SUPABASE_URL and SUPABASE_SECRET_KEY in Streamlit Cloud Secrets."
+            )
+    else:
         st.info(
-            "Your built-in agents work now. To save custom agents across devices, "
-            "run the one-time Supabase migration: supabase_agents.sql. "
-            "Until then, custom agents stay in this browser session."
+            "Sign in with Google to save your personal agent names and custom agents "
+            "to your account, then use them on another device."
+        )
+        if st.button("Continue with Google to save my agents", key="ma_agents_google_login"):
+            login_with_google()
+        st.caption(
+            "[Set up Google sign-in](https://github.com/Khalid521164/Merge-Ai/blob/main/GOOGLE_SIGNIN_SETUP.md)"
+        )
+
+    if st.session_state.ma_agents_error or st.session_state.ma_aliases_error:
+        st.info(
+            "To sync custom agents and personal display names, run the updated "
+            "Supabase migration: supabase_agents.sql. Built-in agents still work."
         )
         st.link_button(
             "Open Supabase agents setup SQL",
@@ -2892,15 +2952,81 @@ if st.session_state.ma_agents_screen and not st.session_state.ma_voice_screen:
                     {**agent, "_cloud_saved": True}
                     for agent in db.list_agents()
                 ]
+                st.session_state.ma_agent_aliases = db.list_agent_aliases()
                 st.session_state.ma_agents_error = ""
+                st.session_state.ma_aliases_error = ""
                 st.rerun()
             except CloudHistoryError as agent_exc:
                 st.session_state.ma_agents_error = str(agent_exc)
+                st.session_state.ma_aliases_error = str(agent_exc)
                 st.error("Agent sync is not ready yet: " + str(agent_exc))
     elif not user:
         st.caption("Custom agents can be created in this session. Sign in with Google and connect Supabase to sync them across devices.")
     elif user and not db:
         st.caption("Supabase is not connected for this account yet, so new custom agents will stay in this browser session.")
+
+    # ================= PERSONAL AGENT NAMES =================
+
+    with st.expander("🏷️ Personalize agent names", expanded=True):
+        st.caption(
+            "Give each specialist a name you recognize. For example, "
+            "Coding Engineer → Khalid and Researcher → Ashraf. "
+            "These names change the agent label, not its specialist skills."
+        )
+        with st.form("ma_agent_aliases_form"):
+            alias_inputs = {}
+            alias_owner_key = str(user.get("sub")) if user else "signed-out"
+            alias_columns = st.columns(2)
+            alias_examples = {
+                "coder": "Khalid",
+                "researcher": "Ashraf",
+                "tutor": "Study Buddy",
+                "writer": "Writer",
+                "analyst": "Analyst",
+                "science": "Science Coach",
+            }
+            for alias_index, builtin in enumerate(BUILTIN_AGENTS):
+                with alias_columns[alias_index % 2]:
+                    alias_inputs[builtin["id"]] = st.text_input(
+                        "Display name for " + builtin["name"],
+                        value=st.session_state.ma_agent_aliases.get(builtin["id"], ""),
+                        placeholder="e.g. " + alias_examples.get(builtin["id"], builtin["name"]),
+                        max_chars=40,
+                        key="ma_agent_alias_input_" + alias_owner_key + "_" + builtin["id"],
+                    )
+            save_aliases_clicked = st.form_submit_button(
+                "Save my agent names",
+                type="primary",
+                use_container_width=True,
+            )
+
+        if save_aliases_clicked:
+            normalized_aliases = {}
+            for builtin in BUILTIN_AGENTS:
+                entered = str(alias_inputs.get(builtin["id"], "") or "").strip()
+                display_name = entered or builtin["name"]
+                normalized_aliases[builtin["id"]] = display_name
+
+            unique_names = [name.casefold() for name in normalized_aliases.values()]
+            if len(unique_names) != len(set(unique_names)):
+                st.error("Give each agent a different display name so you can tell them apart.")
+            elif not user:
+                st.warning("Sign in with Google first. Your names will then save to your personal account.")
+            elif not db:
+                st.error("Your Google account is signed in, but Supabase storage is not connected. Check Streamlit Cloud Secrets.")
+            else:
+                try:
+                    db.save_agent_aliases(normalized_aliases)
+                    st.session_state.ma_agent_aliases = db.list_agent_aliases()
+                    st.session_state.ma_aliases_error = ""
+                    st.success("Your agent names are saved to your Google account.")
+                    st.rerun()
+                except CloudHistoryError as alias_exc:
+                    st.session_state.ma_aliases_error = str(alias_exc)
+                    st.error(
+                        "Could not save these names. Run the updated "
+                        "supabase_agents.sql migration, then try again."
+                    )
 
     if st.button(
         "＋  Create a new agent",
@@ -2973,12 +3099,15 @@ if st.session_state.ma_agents_screen and not st.session_state.ma_voice_screen:
     all_agents = get_agents()
     st.markdown("### Built-in agents")
     st.caption("Ready-to-use specialists. Each agent continues its own chat thread.")
-    for row_start in range(0, len(BUILTIN_AGENTS), 2):
+    visible_builtin_agents = get_agents()[:len(BUILTIN_AGENTS)]
+    for row_start in range(0, len(visible_builtin_agents), 2):
         agent_cols = st.columns(2)
-        for agent_col, agent_profile in zip(agent_cols, BUILTIN_AGENTS[row_start:row_start + 2]):
+        for agent_col, agent_profile in zip(agent_cols, visible_builtin_agents[row_start:row_start + 2]):
             with agent_col:
                 with st.container(border=True):
-                    st.markdown("### " + agent_profile["avatar"] + " " + agent_profile["name"])
+                    st.markdown("### " + agent_profile["avatar"] + " " + html.escape(agent_profile["name"]))
+                    if agent_profile["name"] != agent_profile["role_name"]:
+                        st.caption("Specialty: " + agent_profile["role_name"])
                     st.write(agent_profile["description"])
                     st.caption("Powered by Gemini + Groq + OpenRouter")
                     continue_col, new_col = st.columns(2)
@@ -3142,7 +3271,9 @@ def build_context(chat, question):
     if active_agent:
         lines.extend([
             "\nACTIVE SPECIALIST AGENT:",
-            "You are acting as " + active_agent["name"] + " inside Merge AI.",
+            "You are acting as the " + active_agent["role_name"] + " specialist inside Merge AI.",
+            "The user's chosen display name for this specialist is " + active_agent["name"] + ".",
+            "Keep the specialist role and expertise unchanged regardless of its display name.",
             "Follow this agent's task instructions while preserving all safety rules "
             "and being honest about available capabilities:",
             active_agent.get("instructions", "")[:6000],
