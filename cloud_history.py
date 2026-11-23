@@ -200,6 +200,107 @@ class CloudHistory:
             prefer='resolution=merge-duplicates,return=minimal',
         )
 
+    def create_control_device(self, device):
+        """Create a private desktop relay session for the signed-in owner."""
+        if not isinstance(device, dict):
+            raise CloudHistoryError('Invalid desktop bridge session.')
+        try:
+            session_id = str(uuid.UUID(str(device['session_id'])))
+            chat_id = str(uuid.UUID(str(device['chat_id'])))
+        except (KeyError, ValueError, TypeError, AttributeError):
+            raise CloudHistoryError('Invalid desktop bridge session ID.') from None
+        token_hash = str(device.get('token_hash') or '')
+        if len(token_hash) != 64 or any(ch not in '0123456789abcdef' for ch in token_hash.lower()):
+            raise CloudHistoryError('Invalid desktop bridge token hash.')
+        record = {
+            'session_id': session_id,
+            'chat_id': chat_id,
+            'owner_sub': self.owner,
+            'token_hash': token_hash,
+            'status': 'pending',
+            'pair_expires_at': str(device['pair_expires_at']),
+            'expires_at': str(device['expires_at']),
+        }
+        self._call('POST', 'ma2_control_devices', data=record)
+        return session_id
+
+    def get_control_device(self, session_id):
+        try:
+            session_id = str(uuid.UUID(str(session_id)))
+        except (ValueError, TypeError, AttributeError):
+            raise CloudHistoryError('Invalid desktop bridge session ID.') from None
+        rows = self._call('GET', 'ma2_control_devices', {
+            'session_id': 'eq.' + session_id,
+            'owner_sub': 'eq.' + self.owner,
+            'select': 'session_id,chat_id,status,pair_expires_at,expires_at,last_seen_at,created_at',
+            'limit': '1',
+        })
+        if not isinstance(rows, list):
+            raise CloudHistoryError('Unexpected desktop bridge response.')
+        return rows[0] if rows else None
+
+    def create_control_command(self, command):
+        """Queue one already-approved action for the owner's paired desktop."""
+        if not isinstance(command, dict):
+            raise CloudHistoryError('Invalid desktop command.')
+        try:
+            command_id = str(uuid.UUID(str(command.get('command_id') or uuid.uuid4())))
+            session_id = str(uuid.UUID(str(command['session_id'])))
+        except (KeyError, ValueError, TypeError, AttributeError):
+            raise CloudHistoryError('Invalid desktop command ID.') from None
+        allowed = {
+            'screenshot', 'open_app', 'open_url', 'click',
+            'move_mouse', 'type_text', 'hotkey', 'scroll',
+        }
+        action = str(command.get('action') or '')
+        arguments = command.get('arguments') or {}
+        if action not in allowed or not isinstance(arguments, dict):
+            raise CloudHistoryError('Unsupported desktop command.')
+        device = self.get_control_device(session_id)
+        if not device or device.get('status') != 'active':
+            raise CloudHistoryError('The desktop bridge is not connected.')
+        self._call('POST', 'ma2_control_commands', data={
+            'command_id': command_id,
+            'session_id': session_id,
+            'owner_sub': self.owner,
+            'action': action,
+            'arguments': arguments,
+            'status': 'approved',
+        })
+        return command_id
+
+    def list_control_commands(self, session_id, limit=10):
+        try:
+            session_id = str(uuid.UUID(str(session_id)))
+        except (ValueError, TypeError, AttributeError):
+            raise CloudHistoryError('Invalid desktop bridge session ID.') from None
+        rows = self._call('GET', 'ma2_control_commands', {
+            'session_id': 'eq.' + session_id,
+            'owner_sub': 'eq.' + self.owner,
+            'select': 'command_id,action,arguments,status,result_text,created_at,completed_at',
+            'order': 'created_at.desc',
+            'limit': str(max(1, min(int(limit), 20))),
+        })
+        if not isinstance(rows, list):
+            raise CloudHistoryError('Unexpected desktop command response.')
+        return rows
+
+    def end_control_device(self, session_id):
+        try:
+            session_id = str(uuid.UUID(str(session_id)))
+        except (ValueError, TypeError, AttributeError):
+            raise CloudHistoryError('Invalid desktop bridge session ID.') from None
+        self._call('PATCH', 'ma2_control_devices', {
+            'session_id': 'eq.' + session_id,
+            'owner_sub': 'eq.' + self.owner,
+            'status': 'in.(pending,active)',
+        }, {'status': 'stopped'})
+        self._call('PATCH', 'ma2_control_commands', {
+            'session_id': 'eq.' + session_id,
+            'owner_sub': 'eq.' + self.owner,
+            'status': 'in.(approved,running)',
+        }, {'status': 'cancelled'})
+
     def save_agent(self, agent):
         if not isinstance(agent, dict):
             raise CloudHistoryError('Invalid agent.')

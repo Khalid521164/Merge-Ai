@@ -25,5 +25,5 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Compile application modules
-        run: python -m py_compile app.py cloud_history.py merge_ai.py
+      - name: Compile application and desktop companion modules
+        run: python -m py_compile app.py cloud_history.py merge_ai.py desktop_bridge.py
