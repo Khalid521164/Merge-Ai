@@ -20,3 +20,7 @@ alter table public.ma2_agents enable row level security;
 
 -- No public/anon policies are created. Merge AI accesses this table through
 -- its server-side secret key, not from the browser.
+
+-- Only the server-side service role may access custom agent profiles.
+revoke all on table public.ma2_agents from anon, authenticated;
+grant all on table public.ma2_agents to service_role;

@@ -2884,6 +2884,10 @@ if st.session_state.ma_agents_screen and not st.session_state.ma_voice_screen:
         )
         if user and db and st.button("Retry agent sync", key="ma_retry_agent_sync"):
             try:
+                # Preserve agents created locally before the Supabase migration.
+                for local_agent in list(st.session_state.ma_custom_agents):
+                    if not local_agent.get("_cloud_saved"):
+                        db.save_agent(local_agent)
                 st.session_state.ma_custom_agents = [
                     {**agent, "_cloud_saved": True}
                     for agent in db.list_agents()
